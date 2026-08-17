@@ -331,6 +331,16 @@ Includes:
 
 ## Future Expansions
 
+### Next Up
+
+Items identified during the initial build session, not yet started:
+
+1. **Shared data-fetch module** — `fetch-tournament-matches.py` and `elo-calculator.py` each define their own `API_BASE`, `fetch_json()`, and tournament-loading logic. Extract into one shared module both scripts import from.
+2. **Local match-data cache/importer** — both scripts currently re-fetch and re-parse from the live API on every run. An importer that persists fetched matches to local files would support historical analysis without re-hitting the live API each time, and gives the shared module above something concrete to read/write. This is *match-data* persistence (raw match records) — distinct from the *rating* persistence question already deferred in the design doc (see [Rating Persistence](elo-calculator-design.md#rating-persistence)).
+3. **Secondary match-data source** — a second source of match data has been identified, separate from the live tournament API. Before building the importer against it, need to settle:
+   - A canonical match schema both sources normalize into
+   - A dedup/conflict rule for matches that appear in both sources (how to detect the same match, and which source wins)
+
 ### Planned
 
 1. **Multi-tournament ratings** — Aggregate ratings across multiple tournaments
