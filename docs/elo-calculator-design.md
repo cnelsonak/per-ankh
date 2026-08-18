@@ -68,6 +68,8 @@ This document captures design decisions for the tournament ELO rating calculator
 - `slug` alone: More readable but rare edge case of slug release
 - `display_name` alone: Too volatile; loses rating history on name change
 
+**CLI lookup (2026-08-17):** The `player` command now accepts the slug directly (matching what the leaderboard displays), falling back to `display_name` for slug-less players and to raw `user_id` for backward compatibility. Safe because `users.slug` is unique per account at the DB level; the `display_name` fallback isn't unique, so the calculator lists candidate `user_id`s if it matches more than one player.
+
 ---
 
 ## Rating Scope
@@ -167,6 +169,7 @@ This document captures design decisions for the tournament ELO rating calculator
 
 ## Historical Record
 
+- **2026-08-17:** `player` command now takes slug (leaderboard-friendly) instead of requiring `user_id`, with fallback to `display_name`/`user_id` for edge cases.
 - **2026-08-16:** Output format set to multiple command modes: leaderboard (primary), single-match report (primary), single-player report (primary), with CSV/JSON as nice-to-haves (discussion with project lead).
 - **2026-08-16:** Division handling set to equal weight (no per-division pools), with future match-type weighting (user-submitted < swiss < elimination) stubbed in code (discussion with project lead).
 - **2026-08-16:** Rating scope set to 2026 Community Tournament only, with future expansion to all tournaments and multiplayer games (discussion with project lead).

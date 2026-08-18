@@ -5,7 +5,7 @@ ELO rating calculator for Per-Ankh tournaments.
 Usage:
     python3 elo-calculator.py leaderboard [--tournament <slug>]
     python3 elo-calculator.py match <match_id> [--tournament <slug>]
-    python3 elo-calculator.py player <user_id> [--tournament <slug>]
+    python3 elo-calculator.py player <player_slug|user_id> [--tournament <slug>]
     python3 elo-calculator.py export <format> [--tournament <slug>]
 
 Supports formats: json, csv
@@ -267,15 +267,31 @@ class ELOCalculator:
         print(f"{display_b + loser_marker:<30} {rating_b:>8.0f}      {delta_b:>+8.1f}      {rating_b + delta_b:>8.0f}")
         print("-" * 80)
     
-    def print_player(self, user_id: str) -> None:
+    def find_player(self, identifier: str) -> Optional[PlayerRating]:
+        """Resolve a player by slug (preferred), display name fallback, or raw user_id."""
+        if identifier in self.ratings:
+            return self.ratings[identifier]
+
+        matches = [p for p in self.ratings.values() if (p.slug or p.display_name) == identifier]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            print(f"'{identifier}' matches multiple players without a unique slug:", file=sys.stderr)
+            for p in matches:
+                print(f"  {p.user_id}  ({p.display_name})", file=sys.stderr)
+            print("Use one of the user_ids above to disambiguate.", file=sys.stderr)
+        return None
+
+    def print_player(self, identifier: str) -> None:
         """Print player's full match history with ELO progression."""
-        if user_id not in self.ratings:
-            print(f"Player '{user_id}' not found.", file=sys.stderr)
+        player = self.find_player(identifier)
+        if not player:
+            print(f"Player '{identifier}' not found. Use the slug shown on the leaderboard.", file=sys.stderr)
             return
-        
-        player = self.ratings[user_id]
+
+        user_id = player.user_id
         name = player.slug or player.display_name
-        
+
         print("\n" + "=" * 100)
         print(f"Player: {name} ({user_id})")
         print(f"Final Rating: {player.rating:.0f}  |  Record: {player.wins}-{player.losses}  |  Matches: {player.matches_played}")
@@ -385,10 +401,10 @@ def main():
     
     elif command == "player":
         if len(sys.argv) < 3:
-            print("Usage: elo-calculator.py player <user_id>", file=sys.stderr)
+            print("Usage: elo-calculator.py player <player_slug|user_id>", file=sys.stderr)
             sys.exit(1)
-        user_id = sys.argv[2]
-        calc.print_player(user_id)
+        identifier = sys.argv[2]
+        calc.print_player(identifier)
     
     elif command == "export":
         if len(sys.argv) < 3:

@@ -151,10 +151,10 @@ Shows:
 
 #### 3. Player Match History
 
-View a player's full tournament progression:
+View a player's full tournament progression, by slug (or user_id):
 
 ```bash
-python3 scripts/elo-calculator.py player O-1ONgvfrVql0yVJiATyh
+python3 scripts/elo-calculator.py player siontific
 ```
 
 **Output:**
@@ -262,11 +262,11 @@ python3 scripts/elo-calculator.py export csv
 ### Track a Player's Progress
 
 ```bash
-# Check player by user ID
-python3 scripts/elo-calculator.py player <user_id>
+# Check player by slug (user_id also works)
+python3 scripts/elo-calculator.py player <player_slug>
 
 # Example: Track siontific through tournament
-python3 scripts/elo-calculator.py player O-1ONgvfrVql0yVJiATyh
+python3 scripts/elo-calculator.py player siontific
 ```
 
 ### Analyze a Specific Match
@@ -302,9 +302,9 @@ Tournament slugs are lowercase, hyphenated. Check the Per-Ankh website URL:
 
 ### "Player not found"
 
-Player must have played at least one completed match. Use the **user_id** (21-char nanoid), not the display name:
-- `O-1ONgvfrVql0yVJiATyh` ✓ (correct)
-- `siontific` ✗ (use slug for leaderboard only)
+Player must have played at least one completed match. Use the **slug** shown on the leaderboard, e.g. `siontific`. The **user_id** (21-char nanoid) still works too, e.g. `O-1ONgvfrVql0yVJiATyh`.
+
+Slugs are unique per Per-Ankh account, so this is unambiguous. The rare exception is a player with no slug at all — the calculator falls back to matching on `display_name`, which isn't guaranteed unique; if two such players share a display name, the tool will list their user_ids so you can disambiguate.
 
 ### "Match not found"
 
