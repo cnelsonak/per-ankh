@@ -30,7 +30,9 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -45,13 +47,51 @@ K_FACTOR = 64  # Fixed; future iterations may vary by match type
 TOURNAMENT_SLUG = "2026-community-tournament"
 
 
+# A handful of "fancy text generator" substitutions with no Latin-letter name
+# to fall back on (transliterate() below handles the far more common case --
+# stroke/bar/tail-decorated Latin letters like D-with-stroke -- generically).
+# Output is always lowercase, so case doesn't matter here.
+_HOMOGLYPH_OVERRIDES = {
+    "฿": "b",  # THAI CURRENCY SYMBOL BAHT, used as a B lookalike
+    "₵": "c",  # CEDI SIGN, used as a C lookalike
+}
+
+
+def transliterate(text: str) -> str:
+    """Best-effort transliteration of Unicode "fancy font" homoglyphs (Discord
+    display names built from stroke/bar/tail Latin-letter variants and the odd
+    currency symbol standing in for a letter) to lowercase plain ASCII.
+    Decorative characters with no letter equivalent (emoji, symbols) are
+    dropped rather than left as mojibake. Not a full Unicode confusables
+    table -- covers the patterns actually seen in Per-Ankh display names,
+    generically by reading each character's Unicode name rather than a
+    hardcoded per-name mapping."""
+    out = []
+    for ch in text:
+        if ch.isascii():
+            out.append(ch.lower())
+            continue
+        if ch in _HOMOGLYPH_OVERRIDES:
+            out.append(_HOMOGLYPH_OVERRIDES[ch])
+            continue
+        m = re.search(r"LETTER ([A-Z])\b", unicodedata.name(ch, ""))
+        if m:
+            out.append(m.group(1).lower())
+        # else: no plain-letter equivalent (emoji, decorative symbols) -- drop
+    return "".join(out)
+
+
 def preferred_name(slug: Optional[str], display_name: str, source: str) -> str:
-    """The name to show for a player. Slug is the friendly identifier for real
-    accounts; a synthetic identity's "slug" is just an internal namespacing key
-    (e.g. "prospector-nizar"), so show its display_name instead."""
-    if source == "synthetic":
-        return display_name
-    return slug or display_name
+    """The name to show for a player. A real account's slug is Per-Ankh's own
+    authoritative, always-lowercase identifier -- shown directly. Everyone
+    else -- synthetic identities (whose "slug" is only an internal namespacing
+    key, e.g. "prospector-nizar") and real accounts with no slug (falling back
+    to a raw Discord display_name, occasionally full of "fancy font"
+    homoglyphs) -- is shown as a transliterated, lowercased display_name, to
+    match that same lowercase-slug convention."""
+    if source != "synthetic" and slug:
+        return slug
+    return transliterate(display_name)
 
 
 @dataclass
@@ -347,11 +387,19 @@ class ELOCalculator:
         print("-" * 80)
 
     def find_player(self, identifier: str) -> Optional[PlayerRating]:
-        """Resolve a player by slug, display name, or raw user_id."""
+        """Resolve a player by slug, display name, or raw user_id. Slug/display-name
+        matching is case-insensitive against both the raw and transliterated forms,
+        since what's actually displayed (see preferred_name) can differ from the
+        stored display_name -- lowercased for synthetic players, transliterated
+        from "fancy font" homoglyphs for real accounts with no slug."""
         if identifier in self.ratings:
             return self.ratings[identifier]
 
-        matches = [p for p in self.ratings.values() if identifier in (p.slug, p.display_name)]
+        needle = identifier.lower()
+        matches = [
+            p for p in self.ratings.values()
+            if needle in {n.lower() for n in (p.slug, p.display_name, transliterate(p.display_name)) if n}
+        ]
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
