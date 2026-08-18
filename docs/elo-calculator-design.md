@@ -48,8 +48,9 @@ This document captures design decisions for the tournament ELO rating calculator
 
 **Future iterations may add:**
 - Persistent rating files (JSON) between runs
-- Cumulative multi-tournament ratings
 - Rating history snapshots
+
+**Still true after 2026-08-18's multi-source support (see [Rating Scope](#rating-scope)):** `export snapshot` persists raw *match data* so it doesn't need re-fetching, not computed *ratings* — every run still replays every loaded match from `BASELINE_ELO` and recomputes ratings fresh. Cumulative multi-tournament ratings are now done, but via chronological replay over more input matches, not via carrying rating state between runs.
 
 ---
 
@@ -70,26 +71,36 @@ This document captures design decisions for the tournament ELO rating calculator
 
 **CLI lookup (2026-08-17):** The `player` command now accepts the slug directly (matching what the leaderboard displays), falling back to `display_name` for slug-less players and to raw `user_id` for backward compatibility. Safe because `users.slug` is unique per account at the DB level; the `display_name` fallback isn't unique, so the calculator lists candidate `user_id`s if it matches more than one player.
 
+### Synthetic players (2026-08-18)
+
+Historical sources can include players with no Per-Ankh account — e.g. someone from an earlier, unaffiliated tournament (`prospector.fly.dev`) who never signed up here. They get a `source: "synthetic"` player entry with a fabricated identity: `user_id` prefixed `prospector:`, `slug` prefixed `prospector-` (both just internal namespacing so they can't collide with a real account, never meant to be shown), and a real `display_name`.
+
+**Decision:** synthetic players' matches fully participate in rating calculation — they produce real ELO deltas for the real players who beat/lost to them, exactly like any other match — but they're **excluded from the leaderboard and `export json`/`export csv`**, since they haven't opted into being ranked on the current system.
+
+**Rationale:**
+- Dropping their matches entirely would understate real players' results (a win over anyone, present or historical, is still a win) and would silently break chronological replay (some real players' *earliest* results are matches against synthetic opponents).
+- Displaying them alongside real accounts would misrepresent people as being "on Per-Ankh" who never signed up.
+- `find_player`/`match` still resolve them (by `display_name`, not the internal `prospector-` slug) so a specific historical result stays auditable even though the person isn't ranked.
+
+**Identity mapping process:** for the `prospector.fly.dev` import specifically, the site had no stable player IDs — everything was inferred from free-text save-file titles. A `match-breadcrumb` Dash callback turned out to give clean, authoritative `"Player (Nation) vs Player (Nation)"` text per match (sourced from the actual save data, unlike the noisy upload title), which resolved player pairing and the winner 100% reliably. Mapping those names to real Per-Ankh accounts, and judging which differently-spelled names were the same person (e.g. `Ninja`/`ninja`/`Ninjaa`), was **not automatable** — done by the tournament organizer, who knows the players, via `/u/<slug>` lookups. 15 of 33 distinct players from that import had no Per-Ankh account and became synthetic.
+
 ---
 
 ## Rating Scope
 
-**Decision:** 2026 Community Tournament only (first iteration)
+**Original decision (2026-08-16):** 2026 Community Tournament only (first iteration)
 
-**Rationale:**
-- Simplifies MVP; focused baseline for testing ELO calculations
-- Need to understand how multiplayer duels/other tournaments are indexed on site
-- Clear, bounded dataset for validation
+**Superseded 2026-08-18:** The calculator now replays the live tournament plus zero or more historical match files (`--source`, repeatable), merged into **one continuous chronological pass** — not separate per-tournament tallies. A player's rating reflects every loaded match in date order, regardless of which source it came from. See `elo-calculator-usage.md` § [Historical data & multiple sources](elo-calculator-usage.md#historical-data--multiple-sources).
 
-**Future iterations (scope expansion):**
-- Include all tournaments (iterate through tournament list API)
-- Include multiplayer games (scope: rating system design for user-submitted games)
-- Separate or blended multi-tournament ratings
-- Per-tournament ratings vs. cumulative global ratings
+**Rationale for combining rather than keeping per-tournament pools:**
+- A continuous history is what ELO is for — an isolated per-tournament rating throws away exactly the signal ("this player already has a track record") that makes ratings meaningful across events.
+- Keeps the single-tournament case as a trivial special case (one source, nothing to combine) rather than a separate code path.
 
-**Notes for future work:**
-- Multiplayer games require investigation: are they indexed per-tournament or globally?
-- How should 1v1 matches vs multiplayer FFA games be weighted in ELO?
+**How scope expansion actually happened (not as originally planned):** the trigger wasn't "iterate through the tournament list API" — it was a **third-party, non-Per-Ankh site** (`prospector.fly.dev`, an independently-run Old World match visualizer) hosting last season's results. That data has no Per-Ankh `user_id`s at all; identity had to be hand-mapped from the site's free-text player names to real accounts by the tournament organizer (see [Player Identity](#player-identity) below). This means scope expansion is now **source-format-driven, not API-driven**: any match data — Per-Ankh's own API, a third-party site, a manually-curated file — can feed the calculator as long as it's expressed in the portable `players` + `matches` schema (documented in the usage doc). `export snapshot` produces that same schema from the live API, so the API path and the third-party-import path converge on one format instead of needing separate handling.
+
+**Still true from the original decision:**
+- Multiplayer/FFA games are still out of scope — the schema and the ELO update (`calculate_elo_delta`) are both strictly 1v1.
+- "How should 1v1 vs multiplayer be weighted" is still an open question, now merged with the match-type weighting question below.
 
 ---
 
@@ -169,6 +180,9 @@ This document captures design decisions for the tournament ELO rating calculator
 
 ## Historical Record
 
+- **2026-08-18:** Rating scope superseded: multi-source chronological replay (`--source`, repeatable; `--no-live`; `export snapshot`) replaces the single-tournament-only decision. Synthetic-player convention added for historical opponents with no Per-Ankh account (discussion with project lead).
+- **2026-08-18:** Imported 52 historical matches / 33 players from `prospector.fly.dev` (third-party, non-Per-Ankh Old World tournament visualizer) as `scripts/data/prospector-2025-tournament-matches.json`; 18 players hand-mapped to real Per-Ankh accounts, 15 with no account marked synthetic (discussion with project lead).
+- **2026-08-17:** Fixed two pre-existing correctness bugs: `calculate_ratings()` was writing one shared, tautologically-mis-attributed match-history entry to both players (opponent always showed as the slot_b player; result always showed "W"); `print_match()` separately reconstructed pre-match ratings but silently dropped a player's prior matches played from the other slot.
 - **2026-08-17:** `player` command now takes slug (leaderboard-friendly) instead of requiring `user_id`, with fallback to `display_name`/`user_id` for edge cases.
 - **2026-08-16:** Output format set to multiple command modes: leaderboard (primary), single-match report (primary), single-player report (primary), with CSV/JSON as nice-to-haves (discussion with project lead).
 - **2026-08-16:** Division handling set to equal weight (no per-division pools), with future match-type weighting (user-submitted < swiss < elimination) stubbed in code (discussion with project lead).

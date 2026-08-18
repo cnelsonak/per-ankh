@@ -208,6 +208,90 @@ Rank,User ID,Slug,Display Name,Rating,Matches,Wins,Losses
 ...
 ```
 
+`export json`/`export csv`/`leaderboard` only ever list real Per-Ankh accounts — see [Synthetic players](#synthetic-players) below for why some match participants never show up here even though their results counted.
+
+#### 6. Export a Snapshot (for offline replay)
+
+Dump the live-fetched tournament's raw matches to a portable file, so a future run can replay them without hitting the API again:
+
+```bash
+python3 scripts/elo-calculator.py export snapshot
+# Creates: 2026-community-tournament-matches_TIMESTAMP.json
+```
+
+This is the same `players` + `matches` schema described below under **Historical data & multiple sources** — a snapshot is just another source file.
+
+---
+
+## Historical data & multiple sources
+
+By default the calculator fetches one live tournament and computes ratings from it alone. Two flags let it also replay **historical match data from files**, merged with the live tournament into one continuous chronological pass:
+
+```bash
+# Live tournament + one historical file, replayed together in date order
+python3 scripts/elo-calculator.py --source scripts/data/prospector-2025-tournament-matches.json leaderboard
+
+# Stack multiple historical files (repeat --source)
+python3 scripts/elo-calculator.py --source file1.json --source file2.json leaderboard
+
+# Pure offline replay — skip the live fetch entirely (requires at least one --source)
+python3 scripts/elo-calculator.py --no-live --source scripts/data/prospector-2025-tournament-matches.json leaderboard
+```
+
+`--source` and `--no-live` work with every command (`leaderboard`, `match`, `player`, `export`), and combine with `--tournament` to pick a different live tournament.
+
+### Source file schema
+
+A source file is a self-contained JSON object — no querying required to replay it:
+
+```json
+{
+  "source": "https://prospector.fly.dev/",
+  "fetched_at": "2026-08-18T01:11:36Z",
+  "note": "human-readable provenance notes",
+  "players": {
+    "<player-key>": {
+      "source": "per-ankh" | "synthetic",
+      "user_id": "...",
+      "slug": "...",
+      "display_name": "...",
+      "aliases": ["optional", "raw", "spellings", "seen"]
+    }
+  },
+  "matches": [
+    {
+      "match_id": "...",
+      "date": "2026-03-17",
+      "player1": "<player-key>",
+      "player2": "<player-key>",
+      "winner": "<player-key, must equal player1 or player2>",
+      "nation1": "optional", "nation2": "optional", "map": "optional"
+    }
+  ]
+}
+```
+
+Only `match_id`, `date`, `player1`, `player2`, and `winner` are required per match; everything else is passed through for display (`match` command) but not required. `export snapshot` produces exactly this schema, so **exporting a tournament and later loading it via `--source` is a lossless round-trip** — verified: a live-only leaderboard and a `--no-live --source <its own snapshot>` replay of the same tournament produce byte-identical output.
+
+Match IDs from `--source` files are namespaced by the file's basename (e.g. `prospector-2025-tournament-matches:52`) so two source files can reuse small integer IDs without colliding. Live-tournament match IDs are never prefixed, so existing `match <id>` usage is unaffected when no `--source` is loaded.
+
+### Synthetic players
+
+Historical sources sometimes include players with no Per-Ankh account — someone from an earlier, unaffiliated tournament who never signed up for this rating system. Give them `"source": "synthetic"` in the player entry instead of `"per-ankh"`. Synthetic players:
+
+- **Still fully participate in rating calculation** — their matches produce real ELO deltas for real opponents, exactly like any other match.
+- **Never appear on the leaderboard or in `export json`/`export csv`** — they haven't opted into being ranked.
+- **Still work with `player <name>` and `match <id>`** — useful for auditing a specific historical result, just not for ranking.
+- **Display by `display_name`, not `slug`** — a synthetic identity's "slug" (e.g. `prospector-nizar`) is only an internal lookup key to keep it distinct from real accounts; opponent columns show the friendly name (`Nizar`) instead.
+
+Decided 2026-08-18 — see [elo-calculator-design.md](elo-calculator-design.md) for the full rationale, including how player identity was hand-mapped from a third-party source to real Per-Ankh accounts.
+
+### Chronological replay
+
+All loaded matches — live and file-sourced alike — are sorted by `date` and replayed in one pass, so historical results feed directly into current ratings rather than being layered on afterward. This is why `alcaras`'s rating after a combined replay differs from either source computed alone: it's one continuous history, not two separate tallies added together.
+
+**Not yet implemented:** time-sliced evaluation (e.g. "ratings as of a given date," or restricting replay to a date range). The `date` field on every match makes this a small addition later, but it isn't built yet — currently every loaded match is always included.
+
 ---
 
 ## Understanding ELO Ratings
@@ -343,17 +427,20 @@ Items identified during the initial build session, not yet started:
 
 ### Planned
 
-1. **Multi-tournament ratings** — Aggregate ratings across multiple tournaments
+1. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
 2. **Match-type weighting** — Different weights for user-submitted vs tournament matches
-3. **Rating history** — Track rating changes over time / mid-tournament snapshots
-4. **Web integration** — API endpoint for live ratings on tournament pages
+3. **Web integration** — API endpoint for live ratings on tournament pages
+
+### Done
+
+- ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` holds source files ready to use, e.g. `prospector-2025-tournament-matches.json`.
+- ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to the same portable schema `--source` reads, so re-running doesn't require re-querying the API.
 
 ### Possible
 
 - Head-to-head records (H2H matrices)
 - Performance by nation/archetype
 - Chart ratings over tournament timeline
-- Rating persistence between runs
 
 ---
 
