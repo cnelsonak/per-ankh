@@ -282,9 +282,13 @@ Historical sources sometimes include players with no Per-Ankh account — someon
 - **Still fully participate in rating calculation** — their matches produce real ELO deltas for real opponents, exactly like any other match.
 - **Never appear on the leaderboard or in `export json`/`export csv`** — they haven't opted into being ranked.
 - **Still work with `player <name>` and `match <id>`** — useful for auditing a specific historical result, just not for ranking.
-- **Display by `display_name`, not `slug`** — a synthetic identity's "slug" (e.g. `prospector-nizar`) is only an internal lookup key to keep it distinct from real accounts; opponent columns show the friendly name (`Nizar`) instead.
+- **Display by `display_name`, not `slug`, lowercased** — a synthetic identity's "slug" (e.g. `prospector-nizar`) is only an internal lookup key to keep it distinct from real accounts; opponent columns show the friendly name lowercased (`nizar`) to match the display convention of real Per-Ankh slugs. `player`/`match` lookups are case-insensitive, so `nizar` and `Nizar` both resolve.
 
 Decided 2026-08-18 — see [elo-calculator-design.md](elo-calculator-design.md) for the full rationale, including how player identity was hand-mapped from a third-party source to real Per-Ankh accounts.
+
+### Display name normalization
+
+A real Per-Ankh account with a slug always displays by that slug (already lowercase, Per-Ankh-enforced). An account with **no** slug falls back to its raw Discord `display_name` — which occasionally uses "fancy font" Unicode homoglyphs (stroke/bar-decorated Latin letters, currency symbols standing in for letters, decorative emoji bookends). Both that case and the synthetic-player case above are normalized the same way: transliterated back to plain ASCII and lowercased, so e.g. `🐦🐦ĐØɄ฿ⱠɆ₵ØⱤVłĐ🐦🐦` displays as `doublecorvld`. This is best-effort, not a full Unicode confusables table — it reads each character's Unicode name (e.g. "LATIN CAPITAL LETTER D WITH STROKE" → `D`) rather than a hand-built per-glyph table, plus a couple of currency-symbol overrides with no letter-name to fall back on; decorative characters with no letter equivalent are dropped. It can occasionally misread a homoglyph (e.g. `ł`, "L WITH STROKE," reads as `l`, not the `i` some fancy-font generators intend), so it's a readability fix, not a guaranteed exact reconstruction of the original name. `player`/`match` lookups match against both the raw and transliterated forms, case-insensitively.
 
 ### Chronological replay
 
