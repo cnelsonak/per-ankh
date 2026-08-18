@@ -160,22 +160,30 @@ class ELOCalculator:
                 self.ratings[slot_a_id].losses += 1
                 self.ratings[slot_b_id].wins += 1
             
-            # Record match history
+            # Record match history (separate entries: each is from that player's own perspective)
             slot_a_name = self.ratings[slot_a_id].slug or self.ratings[slot_a_id].display_name
             slot_b_name = self.ratings[slot_b_id].slug or self.ratings[slot_b_id].display_name
-            
-            history_entry = {
+
+            self.ratings[slot_a_id].match_history.append({
                 "match_id": match.get("match_id"),
                 "date": reported_at,
-                "opponent": slot_b_name if slot_a_id == self.ratings[slot_a_id].user_id else slot_a_name,
-                "result": "W" if (winner_id and slot_a_id == self.ratings[slot_a_id].user_id) or (not winner_id and slot_b_id == self.ratings[slot_b_id].user_id) else "L",
-                "rating_before": rating_a if slot_a_id == self.ratings[slot_a_id].user_id else rating_b,
-                "rating_after": self.ratings[slot_a_id].rating if slot_a_id == self.ratings[slot_a_id].user_id else self.ratings[slot_b_id].rating,
-                "delta": delta_a if slot_a_id == self.ratings[slot_a_id].user_id else delta_b,
-            }
-            
-            self.ratings[slot_a_id].match_history.append({**history_entry, "player_id": slot_a_id})
-            self.ratings[slot_b_id].match_history.append({**history_entry, "player_id": slot_b_id})
+                "opponent": slot_b_name,
+                "result": "W" if winner_id else "L",
+                "rating_before": rating_a,
+                "rating_after": self.ratings[slot_a_id].rating,
+                "delta": delta_a,
+                "player_id": slot_a_id,
+            })
+            self.ratings[slot_b_id].match_history.append({
+                "match_id": match.get("match_id"),
+                "date": reported_at,
+                "opponent": slot_a_name,
+                "result": "L" if winner_id else "W",
+                "rating_before": rating_b,
+                "rating_after": self.ratings[slot_b_id].rating,
+                "delta": delta_b,
+                "player_id": slot_b_id,
+            })
     
     def print_leaderboard(self, limit: Optional[int] = None) -> None:
         """Print leaderboard sorted by rating."""
@@ -223,28 +231,18 @@ class ELOCalculator:
         slot_a_slug = match.get("slot_a_slug")
         slot_b_slug = match.get("slot_b_slug")
         winner_is_a = match.get("winner_slot_id") == match.get("slot_a_id")
-        
-        # Reconstruct this specific match calculation
-        rating_a = BASELINE_ELO
-        rating_b = BASELINE_ELO
-        
-        # Re-calculate up to this match to get correct pre-match ratings
-        for m in self.matches:
-            if m.get("match_id") == match_id:
-                break
-            
-            m_slot_a_id = m.get("slot_a_user_id")
-            m_slot_b_id = m.get("slot_b_user_id")
-            m_winner_is_a = m.get("winner_slot_id") == m.get("slot_a_id")
-            
-            if m_slot_a_id == slot_a_id:
-                rating_a += self.calculate_elo_delta(rating_a, rating_b, 1 if m_winner_is_a else 0)
-            if m_slot_b_id == slot_b_id:
-                rating_b += self.calculate_elo_delta(rating_b, rating_a, 1 if (not m_winner_is_a and m_slot_b_id == slot_b_id) else 0)
-        
-        # Calculate deltas for this match
-        delta_a = self.calculate_elo_delta(rating_a, rating_b, 1 if winner_is_a else 0)
-        delta_b = self.calculate_elo_delta(rating_b, rating_a, 0 if winner_is_a else 1)
+
+        # Pull this match's before/delta straight from each player's own history
+        # (calculate_ratings() already replayed all matches chronologically).
+        hist_a = next((h for h in self.ratings[slot_a_id].match_history if h["match_id"] == match_id), None)
+        hist_b = next((h for h in self.ratings[slot_b_id].match_history if h["match_id"] == match_id), None)
+
+        if not hist_a or not hist_b:
+            print(f"No rating history found for match '{match_id}'.", file=sys.stderr)
+            return
+
+        rating_a, delta_a = hist_a["rating_before"], hist_a["delta"]
+        rating_b, delta_b = hist_b["rating_before"], hist_b["delta"]
         
         print("\n" + "=" * 80)
         print(f"Match: {match_id}")
