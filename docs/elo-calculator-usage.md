@@ -419,26 +419,18 @@ Includes:
 
 ## Future Expansions
 
-### Next Up
-
-Items identified during the initial build session, not yet started:
-
-1. **Shared data-fetch module** — `fetch-tournament-matches.py` and `elo-calculator.py` each define their own `API_BASE`, `fetch_json()`, and tournament-loading logic. Extract into one shared module both scripts import from.
-2. **Local match-data cache/importer** — both scripts currently re-fetch and re-parse from the live API on every run. An importer that persists fetched matches to local files would support historical analysis without re-hitting the live API each time, and gives the shared module above something concrete to read/write. This is *match-data* persistence (raw match records) — distinct from the *rating* persistence question already deferred in the design doc (see [Rating Persistence](elo-calculator-design.md#rating-persistence)).
-3. **Secondary match-data source** — a second source of match data has been identified, separate from the live tournament API. Before building the importer against it, need to settle:
-   - A canonical match schema both sources normalize into
-   - A dedup/conflict rule for matches that appear in both sources (how to detect the same match, and which source wins)
-
 ### Planned
 
-1. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
-2. **Match-type weighting** — Different weights for user-submitted vs tournament matches
-3. **Web integration** — API endpoint for live ratings on tournament pages
+1. **Shared data-fetch module** — `fetch-tournament-matches.py` and `elo-calculator.py` each define their own `API_BASE`, `fetch_json()`, and tournament-loading logic. Extract into one shared module both scripts import from. (Identified during the initial build session, still open.)
+2. **Match dedup/conflict rule across sources** — the multi-source replay (see below) has no way to detect the same match appearing in two loaded sources (live API + a `--source` file, or two `--source` files) and would double-count it. Not currently a live risk — the one source file in `scripts/data/` covers an earlier, non-overlapping season — but there's no guard if that stops being true.
+3. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
+4. **Match-type weighting** — Different weights for user-submitted vs tournament matches
+5. **Web integration** — API endpoint for live ratings on tournament pages
 
 ### Done
 
-- ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` holds source files ready to use, e.g. `prospector-2025-tournament-matches.json`.
-- ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to the same portable schema `--source` reads, so re-running doesn't require re-querying the API.
+- ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` holds source files ready to use, e.g. `prospector-2025-tournament-matches.json`.
+- ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
 
 ### Possible
 
