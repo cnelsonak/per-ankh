@@ -2,6 +2,22 @@
 
 This document captures design decisions for the tournament ELO rating calculator built into the match fetching scripts.
 
+## Why a Rating System?
+
+Prediction — FiveThirtyEight's actual goal in the Elo research cited below — is not why this exists, and we haven't built it (no forecasting or win-probability feature; ratings here are purely retrospective). **The real goal is the same one USGA built the World Handicap System for: to build and sustain a community, not to forecast it** (discussion with project lead, 2026-08-19).
+
+USGA is explicit about this. A handicap exists so a beginner and a scratch golfer can play a *meaningful* match against each other (via net scoring), and so newer or less-skilled players have a legible way to see themselves improve and stay motivated to keep playing — not primarily to predict who scores lowest. Matching people of comparable ability, and making improvement visible, is the point; forecasting is something other systems have layered on top of the same underlying math (see FiveThirtyEight below), not the reason the math exists.
+
+That's the actual goal here too:
+- **A visible, responsive rating gives every player a sense of standing and progress** — including players who'll never top the leaderboard. A newcomer's rating climbing after a string of close losses is a legible improvement signal on its own, without needing a single win.
+- **It sets up matchmaking, not just ranking.** Pairing players of comparable skill — the actual USGA-style use case — isn't a built feature yet; Swiss pairing already approximates it by record, but a rating could do it earlier and more precisely, before results diverge.
+- **An upset stays legible and worth celebrating.** A low-rated player beating a high-rated one produces a large, visible rating swing specifically because the system is built to notice it — that's a participation signal (this game mattered), not a forecasting one.
+- **Encouraging participation matters more than ranking precision.** A rating system that makes new and returning players feel seen is doing its job even if it's a worse predictor than a system tuned purely for forecast accuracy would be.
+
+The responsive, transparent design already documented below — a fixed, aggressive K=64, full match history, no hidden model — fits this goal well, even though it wasn't originally framed this way. If prediction/forecasting is ever wanted later (pre-match win probabilities, tournament-outcome forecasts), that's a genuinely separate feature layered on top of this rating — the way FiveThirtyEight layered it on top of Elo for tennis — not a reason to redesign the rating itself.
+
+---
+
 ## Baseline Rating
 
 **Decision:** 1500
@@ -195,6 +211,7 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 
 ## Historical Record
 
+- **2026-08-19:** Added a "Why a Rating System?" section up front — the doc previously jumped straight into parameter-level decisions (baseline, K-factor, ...) without ever stating the actual goal. Established (discussion with project lead): the point is building/sustaining a community and enabling future matchmaking, modeled on USGA's stated purpose for golf handicaps — not prediction, which is FiveThirtyEight's goal in the cited research and isn't a feature this project has built. Docs only; no behavior change, but this reframes the *reason* behind existing choices like the aggressive fixed K=64.
 - **2026-08-19:** Retired the match-type importance-weighting plan (user-submitted < swiss < elimination K-factors), on the combined evidence of the FiveThirtyEight review below and new research into USGA's World Handicap System (which explicitly does not weight competition scores differently from casual ones in the handicap math). Replaced with two correctly-separated real distinctions, neither a weight: an eligibility filter for human-vs-AI composition (maps onto the app's existing `scope: vs_ai/mp` classification) and an architecture fork for 2-player vs. 3+ player pools (pairwise Elo doesn't apply to FFA without a different algorithm). See Division Handling (discussion with project lead).
 - **2026-08-19:** Reviewed the FiveThirtyEight "2016 U.S. Open" reference against a saved archive copy (project lead retrieved it from the Wayback Machine, since the live article is gone and automated fetching of web.archive.org isn't available). Corrected this doc's characterization of it: it does not support match-type/recency weighting the way the References section and Assessment table previously claimed — the article's own tested finding is that importance-weighting (Grand Slam vs. regular tour) *hurt* prediction accuracy, so FiveThirtyEight deliberately didn't adopt it. What it does validate: our 1500 baseline, and (as a new data point) a surface-specific/overall Elo blend that has no current Per-Ankh analogue. No behavior changes from this review — documentation accuracy only.
 - **2026-08-18:** Extended test coverage to the other two scripts: `test_fetch_tournament_matches.py` (14 tests -- extracted `filter_matches()` out of `main()` first so the phase/division/status filtering is unit-testable; also a regression test for the nation/map `None`-vs-missing-key crash fixed the same day the script was converted to argparse) and `test_per_ankh_api.py` (8 tests, `unittest.mock.patch` on `urlopen` -- no network calls -- scoped to URL construction and the `None`-vs-`[]` distinction in `fetch_tournament_matches()`, which the two calling scripts treat differently). Same verification standard as below: every regression test confirmed to actually fail when its named bug is reintroduced.
