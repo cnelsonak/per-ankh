@@ -227,6 +227,8 @@ This is the same `players` + `matches` schema described below under **Historical
 
 By default the calculator fetches one live tournament and computes ratings from it alone. Two flags let it also replay **historical match data from files**, merged with the live tournament into one continuous chronological pass:
 
+`scripts/data/` holds these files locally but is gitignored (matches this repo's convention for fetched/external data — see `backups/` and `Reference` in `.gitignore`), so a fresh clone won't have any. See `scripts/data/README.md` for what's expected to live there and how to get it.
+
 ```bash
 # Live tournament + one historical file, replayed together in date order
 python3 scripts/elo-calculator.py --source scripts/data/prospector-2025-tournament-matches.json leaderboard
@@ -429,7 +431,7 @@ Includes:
 
 ### Done
 
-- ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` holds source files ready to use, e.g. `prospector-2025-tournament-matches.json`.
+- ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` (gitignored, local-only) is where these live — see its README.
 - ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
 
 ### Possible
