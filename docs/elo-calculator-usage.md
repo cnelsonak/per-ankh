@@ -437,6 +437,8 @@ Includes:
 2. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
 3. **Match-type weighting** — Different weights for user-submitted vs tournament matches
 4. **Web integration** — API endpoint for live ratings on tournament pages
+5. **Python linting/type-checking** — `npm run lint` is ESLint scoped to `src/`; nothing checks these scripts. Low stakes while the test suite exists, but static checking (e.g. `ruff`) would catch issues the tests don't happen to exercise.
+6. **Reference these docs from root `CLAUDE.md`** — `docs/elo-calculator-usage.md`/`docs/elo-calculator-design.md` aren't listed in its "Key docs & skills" section, unlike `docs/tournament-rules.md` and similar. Worth a conscious call once this branch merges — these are scoped as operator scripts rather than core app docs, so it may be intentional, but that hasn't actually been decided either way.
 
 ### Done
 
