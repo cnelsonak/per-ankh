@@ -4,6 +4,8 @@ Command-line tools for analyzing and rating Old World tournament matches using t
 
 ## Overview
 
+**Why rate players at all?** Not to predict tournament outcomes — that's a different, unbuilt feature. The goal is the same one USGA built golf handicaps for: building and sustaining a community, by making skill and improvement legible and setting up future matchmaking between comparably-skilled players. See the design doc's [Why a Rating System?](elo-calculator-design.md#why-a-rating-system) for the full reasoning.
+
 Two scripts with distinct jobs, sharing one API client (`per_ankh_api.py`) but otherwise independent — they don't consume each other's output (see [Export Results](#export-results) below for the one place this bites):
 
 1. **`fetch-tournament-matches.py`** — browse/filter matches, broadcast-ops info (casters, streams, scheduling)
