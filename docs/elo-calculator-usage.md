@@ -458,6 +458,8 @@ Includes:
 - Head-to-head records (H2H matrices)
 - Performance by nation/archetype
 - Chart ratings over tournament timeline
+- **Printable/friendly export (e.g. PDF)** — `export json`/`csv`/`snapshot` are all machine-readable; nothing currently produces a shareable, presentation-friendly leaderboard. Would likely be the first real external dependency these scripts pull in (breaking the current stdlib-only precedent) unless done via something minimal like styled HTML meant for browser print-to-PDF instead of a PDF library — worth deciding which before starting.
+- **Archival season/year-end snapshot** — related to but distinct from the existing `export json`/`csv` (already file-based) and the "fresh calculation each run" persistence decision: recomputing is already cheap at current player/match counts, so the value here is a stable historical record of "these were the final standings when season N closed," not performance. Worth deciding whether a plain `export json` run once a tournament's `status` hits `complete` is already sufficient, or whether this wants something more explicit (e.g. a dedicated `archive` command, or a documented convention).
 
 ---
 
