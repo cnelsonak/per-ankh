@@ -75,6 +75,16 @@ def print_match(match: dict, index: int = None) -> None:
     print()
 
 
+def filter_matches(matches, phase=None, division=None, status=None):
+    """Filter matches by phase/division/status; None on any field means no filter on it."""
+    return [
+        m for m in matches
+        if (phase is None or m.get("phase") == phase)
+        and (division is None or m.get("division") == division)
+        and (status is None or m.get("status") == status)
+    ]
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fetch and explore Per-Ankh tournament matches.",
@@ -129,12 +139,7 @@ def main():
 
     print("\n" + "=" * 80 + "\n")
 
-    filtered = [
-        m for m in matches
-        if (args.phase is None or m.get("phase") == args.phase)
-        and (args.division is None or m.get("division") == args.division)
-        and (args.status is None or m.get("status") == args.status)
-    ]
+    filtered = filter_matches(matches, args.phase, args.division, args.status)
 
     print(f"Showing {len(filtered)} matches:\n")
     for i, match in enumerate(filtered, 1):
