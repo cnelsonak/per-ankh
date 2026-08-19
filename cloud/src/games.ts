@@ -2408,6 +2408,88 @@ export async function handlePublicRecentGames(
 	});
 }
 
+// PROTOTYPE (2026-08-19) -- demonstrates the fix proposed in per-ankh's
+// scripts/docs/elo-calculator-design.md § "User-Submitted Games as a Data
+// Source -- Blocked". Not wired into any route change here beyond
+// handleGameDetail below, and not intended to merge as-is: a real PR would
+// also update src/lib/api-cloud.ts's client type and add integration tests
+// alongside the existing games/* suite (see
+// cloud/test/integration/games/resolved-players.test.ts for a demonstration
+// of the latter).
+//
+// Resolves each human player_roster seat's online_id to a Per-Ankh account
+// via user_online_ids (idx_user_online_ids_online already supports this
+// lookup -- see migrations/0003_user_online_ids.sql). Returns ONLY the
+// resolved user_id/slug/display_name per seat -- never the raw online_id --
+// so this doesn't move the existing PII boundary (stripOnlineIds above is
+// untouched; owners and non-owners alike get resolved identities here, the
+// same "no meaningful new PII" reasoning already applied to the uploader's
+// own injected identity fields below applies equally to every other seat).
+//
+// An online_id claimed by more than one account (rare -- see the migration's
+// comment) is skipped rather than guessed, matching this project's existing
+// stance on ambiguous identity matches (see elo-calculator.py's
+// find_player()).
+interface ResolvedRosterIdentity {
+	player_index: number;
+	user_id: string;
+	slug: string | null;
+	display_name: string;
+}
+
+async function resolveRosterIdentities(
+	db: QueryableD1,
+	roster: PlayerRosterEntry[],
+): Promise<ResolvedRosterIdentity[]> {
+	const humanOnlineIds = roster
+		.filter((p) => p.is_human && p.online_id)
+		.map((p) => p.online_id as string);
+	if (humanOnlineIds.length === 0) return [];
+
+	// Dedup: a local multiplayer/hotseat roster could repeat an online_id
+	// across seats (same physical player, multiple in-game slots), and an
+	// unnecessarily-wide IN clause is otherwise harmless but wasteful.
+	const uniqueOnlineIds = [...new Set(humanOnlineIds)];
+	const placeholders = uniqueOnlineIds.map(() => "?").join(",");
+
+	const { results } = await db
+		.prepare(
+			`SELECT o.online_id, o.user_id, ${displayNameSql("u")} AS display_name, u.slug
+			 FROM user_online_ids o
+			 JOIN users u ON o.user_id = u.user_id
+			 WHERE o.online_id IN (${placeholders})`,
+		)
+		.bind(...uniqueOnlineIds)
+		.all<{
+			online_id: string;
+			user_id: string;
+			display_name: string;
+			slug: string | null;
+		}>();
+
+	const matchesByOnlineId = new Map<string, typeof results>();
+	for (const row of results) {
+		const list = matchesByOnlineId.get(row.online_id) ?? [];
+		list.push(row);
+		matchesByOnlineId.set(row.online_id, list);
+	}
+
+	const resolved: ResolvedRosterIdentity[] = [];
+	for (const player of roster) {
+		if (!player.is_human || !player.online_id) continue;
+		const matches = matchesByOnlineId.get(player.online_id);
+		if (matches?.length === 1) {
+			resolved.push({
+				player_index: player.player_index,
+				user_id: matches[0].user_id,
+				slug: matches[0].slug,
+				display_name: matches[0].display_name,
+			});
+		}
+	}
+	return resolved;
+}
+
 export async function handleGameDetail(
 	gameId: string,
 	request: Request,
@@ -2566,6 +2648,17 @@ export async function handleGameDetail(
 	const baseBlob = isOwner
 		? { ...(parsed as Record<string, unknown>), is_public: isPublic }
 		: (stripOnlineIds(parsed) as Record<string, unknown>);
+	// PROTOTYPE: resolved from the pre-strip roster (raw online_ids), but only
+	// the derived user_id/slug/display_name ever reach the response -- see
+	// resolveRosterIdentities above. Independent of isOwner: this is not the
+	// same PII boundary stripOnlineIds enforces, and applies identically to
+	// owner and non-owner reads.
+	const rawRoster = (parsed as Record<string, unknown>).player_roster as
+		| PlayerRosterEntry[]
+		| undefined;
+	const resolvedPlayers = rawRoster
+		? await resolveRosterIdentities(env.SHARE_DB, rawRoster)
+		: [];
 	const transformed = {
 		...baseBlob,
 		user_id: row.user_id,
@@ -2577,6 +2670,8 @@ export async function handleGameDetail(
 		user_display_name: row.user_display_name,
 		user_slug: row.user_slug,
 		display_name: row.display_name,
+		// PROTOTYPE: resolved_players -- see resolveRosterIdentities above.
+		resolved_players: resolvedPlayers,
 	};
 	const bodyText = JSON.stringify(transformed);
 
