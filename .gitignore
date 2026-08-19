@@ -67,6 +67,14 @@ assets/atlas-sources/
 *.duckdb
 *.duckdb.wal
 
+# ELO calculator historical match snapshots (scripts/elo-calculator.py
+# --source / export snapshot) — fetched or scraped match data, kept local and
+# regenerated rather than tracked in git, same reasoning as backups/ and
+# Reference above. See scripts/data/README.md.
+scripts/data/*
+!scripts/data/.gitkeep
+!scripts/data/README.md
+
 # Test Data / Save Files
 test-data/saves/*
 !test-data/saves/.gitkeep
