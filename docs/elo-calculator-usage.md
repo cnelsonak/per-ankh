@@ -295,6 +295,8 @@ All loaded matches — live and file-sourced alike — are sorted by `date` and 
 
 **Not yet implemented:** time-sliced evaluation (e.g. "ratings as of a given date," or restricting replay to a date range). The `date` field on every match makes this a small addition later, but it isn't built yet — currently every loaded match is always included.
 
+**Same-date matches are batched, not sequenced.** Live-API matches carry a full timestamp (`reported_at`), but source-file matches (like `scripts/data/prospector-2025-tournament-matches.json`) are often day-precision only — checked directly against `prospector.fly.dev` and confirmed there's no finer-grained timestamp available anywhere on that site to recover. With only day granularity, the order matches happen to appear in a file isn't a reliable stand-in for true chronological order. Rather than silently depend on that arbitrary order, every match sharing the exact same `date` string is computed as one batch, against the ratings as they stood *before* the batch — so batch members never affect each other's expected-score calculation regardless of processing order. This only actually changes anything if two same-date matches also share a player (confirmed: currently true of nothing in `scripts/data/` — verified programmatically, not just spot-checked), so today's ratings are identical either way; the batching exists so a future source with denser same-day data can't silently produce order-dependent (and therefore not reproducible) ratings.
+
 ---
 
 ## Understanding ELO Ratings
@@ -415,7 +417,7 @@ Includes:
 
 ### Planned
 
-1. **Match dedup/conflict rule across sources** — the multi-source replay (see below) has no way to detect the same match appearing in two loaded sources (live API + a `--source` file, or two `--source` files) and would double-count it. Not currently a live risk — the one source file in `scripts/data/` covers an earlier, non-overlapping season, and both scripts' matches are date-stamped — but there's no guard if that stops being true.
+1. **Match dedup/conflict rule across sources** — the multi-source replay (see below) has no way to detect the *same match* appearing in two loaded sources (live API + a `--source` file, or two `--source` files) and would double-count it. Distinct from same-date ordering (below, done) — this is about identity (is match X in source A the same real-world game as match Y in source B?), not ordering. Not currently a live risk — the one source file in `scripts/data/` covers an earlier, non-overlapping season — but there's no guard if that stops being true.
 2. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
 3. **Match-type weighting** — Different weights for user-submitted vs tournament matches
 4. **Web integration** — API endpoint for live ratings on tournament pages
@@ -426,6 +428,7 @@ Includes:
 - ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` (gitignored, local-only) is where these live — see its README.
 - ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
 - ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
+- ~~**Same-date match ordering**~~ — matches sharing an exact `date` are now computed as a batch against pre-batch ratings, not sequentially in file order (was previously order-dependent, and therefore not reproducible, whenever a player had two same-date matches); see [Chronological replay](#chronological-replay).
 
 ### Possible
 

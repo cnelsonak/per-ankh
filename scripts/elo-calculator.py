@@ -273,7 +273,18 @@ class ELOCalculator:
         return delta
 
     def calculate_ratings(self) -> None:
-        """Replay every loaded match, oldest date first, to compute ELO ratings."""
+        """Replay every loaded match, oldest date first, to compute ELO ratings.
+
+        Matches sharing the exact same `date` string are treated as simultaneous
+        -- a batch, computed against the ratings as they stood before the batch,
+        not updated one-by-one in whatever order they happen to appear in.
+        Matters for source files with day-only date precision (see
+        docs/elo-calculator-usage.md): with only day granularity, list/file
+        order isn't a reliable stand-in for true chronological order, so batch
+        members never affect each other's expected-score calculation regardless
+        of processing order within the batch. For two same-date matches to
+        actually interact, they'd need to also share a player -- currently true
+        of nothing in scripts/data/, but the algorithm doesn't rely on that."""
         ordered = sorted(self.canonical_matches, key=lambda m: m.date)
 
         def get_or_init(ref: PlayerRef) -> PlayerRating:
@@ -284,40 +295,63 @@ class ELOCalculator:
                 )
             return self.ratings[ref.user_id]
 
-        for m in ordered:
-            pa, pb = get_or_init(m.player_a), get_or_init(m.player_b)
-            a_won = m.winner == "a"
+        i = 0
+        while i < len(ordered):
+            j = i + 1
+            while j < len(ordered) and ordered[j].date == ordered[i].date:
+                j += 1
+            batch = ordered[i:j]
+            i = j
 
-            rating_a, rating_b = pa.rating, pb.rating
-            delta_a = self.calculate_elo_delta(rating_a, rating_b, 1 if a_won else 0)
-            delta_b = self.calculate_elo_delta(rating_b, rating_a, 0 if a_won else 1)
+            starting_rating: Dict[str, float] = {}
+            delta_total: Dict[str, float] = {}
 
-            pa.rating += delta_a
-            pb.rating += delta_b
-            pa.matches_played += 1
-            pb.matches_played += 1
-            if a_won:
-                pa.wins += 1
-                pb.losses += 1
-            else:
-                pa.losses += 1
-                pb.wins += 1
+            def snapshot(p: PlayerRating) -> None:
+                if p.user_id not in starting_rating:
+                    starting_rating[p.user_id] = p.rating
+                    delta_total[p.user_id] = 0.0
 
-            name_a = preferred_name(pa.slug, pa.display_name, pa.source)
-            name_b = preferred_name(pb.slug, pb.display_name, pb.source)
+            for m in batch:
+                snapshot(get_or_init(m.player_a))
+                snapshot(get_or_init(m.player_b))
 
-            pa.match_history.append({
-                "match_id": m.match_id, "date": m.date, "opponent": name_b,
-                "result": "W" if a_won else "L",
-                "rating_before": rating_a, "rating_after": pa.rating,
-                "delta": delta_a, "player_id": pa.user_id,
-            })
-            pb.match_history.append({
-                "match_id": m.match_id, "date": m.date, "opponent": name_a,
-                "result": "L" if a_won else "W",
-                "rating_before": rating_b, "rating_after": pb.rating,
-                "delta": delta_b, "player_id": pb.user_id,
-            })
+            for m in batch:
+                pa, pb = self.ratings[m.player_a.user_id], self.ratings[m.player_b.user_id]
+                a_won = m.winner == "a"
+                rating_a, rating_b = starting_rating[pa.user_id], starting_rating[pb.user_id]
+
+                delta_a = self.calculate_elo_delta(rating_a, rating_b, 1 if a_won else 0)
+                delta_b = self.calculate_elo_delta(rating_b, rating_a, 0 if a_won else 1)
+                delta_total[pa.user_id] += delta_a
+                delta_total[pb.user_id] += delta_b
+
+                pa.matches_played += 1
+                pb.matches_played += 1
+                if a_won:
+                    pa.wins += 1
+                    pb.losses += 1
+                else:
+                    pa.losses += 1
+                    pb.wins += 1
+
+                name_a = preferred_name(pa.slug, pa.display_name, pa.source)
+                name_b = preferred_name(pb.slug, pb.display_name, pb.source)
+
+                pa.match_history.append({
+                    "match_id": m.match_id, "date": m.date, "opponent": name_b,
+                    "result": "W" if a_won else "L",
+                    "rating_before": rating_a, "rating_after": rating_a + delta_a,
+                    "delta": delta_a, "player_id": pa.user_id,
+                })
+                pb.match_history.append({
+                    "match_id": m.match_id, "date": m.date, "opponent": name_a,
+                    "result": "L" if a_won else "W",
+                    "rating_before": rating_b, "rating_after": rating_b + delta_b,
+                    "delta": delta_b, "player_id": pb.user_id,
+                })
+
+            for user_id, total in delta_total.items():
+                self.ratings[user_id].rating = starting_rating[user_id] + total
 
     def ranked_players(self) -> List[PlayerRating]:
         """Players eligible for leaderboard/export -- excludes synthetic identities
