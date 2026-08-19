@@ -120,6 +120,28 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 
 ---
 
+## User-Submitted Games as a Data Source — Blocked (2026-08-19)
+
+**Goal, as scoped (discussion with project lead):** pull non-tournament, user-submitted 1v1 human-vs-human games from the Per-Ankh API as an additional ELO data source, gated behind an opt-in flag (this would move ratings significantly, hence opt-in rather than default-on). Already decided: weight these identically to tournament matches — no special K-factor, consistent with retiring match-type weighting (see Division Handling below) — and exclude AI opponents and non-1v1 games entirely (excluded, not weighted differently).
+
+**Researched and found blocked, not just unbuilt.** Tournament matches and casual uploads resolve player identity at fundamentally different points in the data model:
+
+- **Tournaments identify both players at the *match* level, before a game is ever played.** A tournament match's two sides come from `tournament_slots` — real accounts pre-registered into Slot A/Slot B at signup, independent of any save file. When a game is later reported for that match, the Worker stamps the *already-known* `slot_a_user_id`/`slot_b_user_id` onto the match row (`cloud/src/games.ts`). The save file is never the source of truth for who's playing — the registration is.
+- **Self-reported/casual uploads have no equivalent match-level entity.** There's just a `game` — a parsed save tied to exactly one known account, the uploader. Every other seat in `player_roster` is save-file-native (`player_name` — the in-game leader/character name, not a Per-Ankh account; `nation`; `is_human`) with **zero account linkage exposed anywhere in the public API.** `GET /v1/games/:id` injects only the uploader's own resolved identity (`user_id`, `slug`, `display_name`) — confirmed by reading `cloud/src/games.ts`'s game-detail handler directly.
+- The one place real identity *does* exist for other seats is `online_id` (Steam/GOG/Epic ID), matched against the private `user_online_ids` table — session-gated to each user reading it about *themselves*, and deliberately stripped from every non-owner view. That's an existing, intentional PII boundary (`cloud/src/CLAUDE.md`'s "online_id never leaves its lane"), not an oversight. Working around it isn't the right move even where it might be technically possible from a script's vantage point.
+
+**Net effect:** for a 2-human casual game, we can know who uploaded it and whether they won — but not who they played against. Pairwise ELO needs both sides' identity, and only one is ever available today.
+
+**What would actually unblock this — a specific ask, not just "expose more data":** resolve `online_id → user_id` **server-side**, and expose only the *resolved* `user_id` per `player_roster` seat — never the raw `online_id` itself. This is the same resolve-and-inject pattern the API already uses for the uploader's own seat (`user_id` is injected today; `online_id` itself is never returned to non-owners) — extending it to every human seat, not just the uploader's, closes this gap without moving the existing PII boundary at all.
+
+A lighter, opt-in alternative that wouldn't need any `online_id` handling change: let the uploader tag other seats with known Per-Ankh accounts post-upload, unverified — closer to how the `prospector.fly.dev` historical import required a human who knew the players (see Player Identity above), just smaller-scale and ongoing rather than a one-time bulk import.
+
+**Secondary consideration for whenever this unblocks:** `GET /v1/games/:id` costs `anon_read` budget — 200/hr **per IP**, not per session or per script — for every caller except the actual game owner. Bulk-fetching many users' game details at scale needs real throttling design, not just a fetch loop.
+
+This directly affects two items in `elo-calculator-usage.md`'s Planned list — the human/AI eligibility filter and the 2-player/3+-player architecture fork — both scoped assuming "if user-submitted games ever become a data source" was purely a build question. It's now known to also be an identity-resolution question outside this project's control.
+
+---
+
 ## Division Handling
 
 **Decision:** Equal weight for all matches (no per-division pools or modifiers)
@@ -211,6 +233,7 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 
 ## Historical Record
 
+- **2026-08-19:** Researched pulling user-submitted (non-tournament) games as an ELO data source — the natural next step after retiring match-type weighting, since we'd already decided to weight them identically to tournament matches and exclude AI/non-1v1 games. Found genuinely blocked, not just unbuilt: the public API never resolves a casual game's non-uploader players to Per-Ankh accounts (confirmed by reading `cloud/src/games.ts`'s game-detail handler directly), unlike tournament matches, which identify both sides at the match-registration level before a game is even played. Documented as its own section with a specific, privacy-respecting proposed fix (project lead intends to raise it with the API developers), rather than folded into the Planned list where it would misleadingly read as just an implementation task.
 - **2026-08-19:** Added a "Why a Rating System?" section up front — the doc previously jumped straight into parameter-level decisions (baseline, K-factor, ...) without ever stating the actual goal. Established (discussion with project lead): the point is building/sustaining a community and enabling future matchmaking, modeled on USGA's stated purpose for golf handicaps — not prediction, which is FiveThirtyEight's goal in the cited research and isn't a feature this project has built. Docs only; no behavior change, but this reframes the *reason* behind existing choices like the aggressive fixed K=64.
 - **2026-08-19:** Retired the match-type importance-weighting plan (user-submitted < swiss < elimination K-factors), on the combined evidence of the FiveThirtyEight review below and new research into USGA's World Handicap System (which explicitly does not weight competition scores differently from casual ones in the handicap math). Replaced with two correctly-separated real distinctions, neither a weight: an eligibility filter for human-vs-AI composition (maps onto the app's existing `scope: vs_ai/mp` classification) and an architecture fork for 2-player vs. 3+ player pools (pairwise Elo doesn't apply to FFA without a different algorithm). See Division Handling (discussion with project lead).
 - **2026-08-19:** Reviewed the FiveThirtyEight "2016 U.S. Open" reference against a saved archive copy (project lead retrieved it from the Wayback Machine, since the live article is gone and automated fetching of web.archive.org isn't available). Corrected this doc's characterization of it: it does not support match-type/recency weighting the way the References section and Assessment table previously claimed — the article's own tested finding is that importance-weighting (Grand Slam vs. regular tour) *hurt* prediction accuracy, so FiveThirtyEight deliberately didn't adopt it. What it does validate: our 1500 baseline, and (as a new data point) a surface-specific/overall Elo blend that has no current Per-Ankh analogue. No behavior changes from this review — documentation accuracy only.
