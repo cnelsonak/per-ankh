@@ -36,10 +36,10 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
-API_BASE = "https://api.per-ankh.app/v1"
+from per_ankh_api import fetch_tournament, fetch_tournament_matches
+
+USER_AGENT = "Per-Ankh-ELO-Calculator/1.0"
 
 # ELO Configuration (locked from design decisions)
 BASELINE_ELO = 1500
@@ -147,16 +147,6 @@ class ELOCalculator:
         self.canonical_matches: List[CanonicalMatch] = []
         self.ratings: Dict[str, PlayerRating] = {}
 
-    def fetch_json(self, url: str) -> Optional[dict]:
-        """Fetch JSON from URL."""
-        try:
-            req = Request(url, headers={"User-Agent": "Per-Ankh-ELO-Calculator/1.0"})
-            with urlopen(req, timeout=10) as response:
-                return json.loads(response.read().decode())
-        except URLError as e:
-            print(f"Error fetching {url}: {e}", file=sys.stderr)
-            return None
-
     def _canonical_from_live(self, match: dict) -> Optional[CanonicalMatch]:
         """Convert one raw Per-Ankh API match into a CanonicalMatch, or None if unusable."""
         slot_a_id = match.get("slot_a_user_id")
@@ -182,7 +172,7 @@ class ELOCalculator:
         """Fetch the live tournament's matches and add them to canonical_matches."""
         print(f"Loading tournament: {self.tournament_slug}")
 
-        data = self.fetch_json(f"{API_BASE}/tournaments/{self.tournament_slug}")
+        data = fetch_tournament(self.tournament_slug, USER_AGENT)
         if not data:
             print(f"Tournament '{self.tournament_slug}' not found.", file=sys.stderr)
             return False
@@ -191,12 +181,12 @@ class ELOCalculator:
         tournament_id = data.get("tournament_id")
         print(f"  {data.get('name')} (Status: {data.get('status')})")
 
-        matches_data = self.fetch_json(f"{API_BASE}/tournaments/{tournament_id}/matches")
-        if not matches_data:
+        all_matches = fetch_tournament_matches(tournament_id, USER_AGENT)
+        if all_matches is None:
             print("Failed to fetch matches.", file=sys.stderr)
             return False
 
-        raw_matches = [m for m in matches_data.get("matches", []) if m.get("status") == "complete"]
+        raw_matches = [m for m in all_matches if m.get("status") == "complete"]
         added = 0
         for m in raw_matches:
             canonical = self._canonical_from_live(m)
@@ -216,8 +206,21 @@ class ELOCalculator:
         with open(path) as f:
             data = json.load(f)
 
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"not a match-source file -- expected a JSON object with \"players\" "
+                f"and \"matches\" keys, got a top-level {type(data).__name__}. "
+                f"(A raw fetch-tournament-matches.py export won't work here -- use "
+                f"`elo-calculator.py export snapshot` to produce a --source-compatible "
+                f"file. See docs/elo-calculator-usage.md § Historical data & multiple sources.)"
+            )
+        if not isinstance(data.get("players"), dict):
+            raise ValueError(f'{path}: missing or invalid "players" object')
+        if not isinstance(data.get("matches"), list):
+            raise ValueError(f'{path}: missing or invalid "matches" array')
+
         tag = os.path.splitext(os.path.basename(path))[0]
-        players = data.get("players", {})
+        players = data["players"]
 
         def ref(key: str) -> PlayerRef:
             p = players.get(key)

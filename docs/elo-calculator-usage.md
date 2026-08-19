@@ -4,10 +4,10 @@ Command-line tools for analyzing and rating Old World tournament matches using t
 
 ## Overview
 
-Two companion scripts:
+Two scripts with distinct jobs, sharing one API client (`per_ankh_api.py`) but otherwise independent — they don't consume each other's output (see [Export Results](#export-results) below for the one place this bites):
 
-1. **`fetch-tournament-matches.py`** — Explore tournament matches with filtering and export
-2. **`elo-calculator.py`** — Calculate ELO ratings and view player/match statistics
+1. **`fetch-tournament-matches.py`** — browse/filter matches, broadcast-ops info (casters, streams, scheduling)
+2. **`elo-calculator.py`** — compute ELO ratings, player/match history
 
 No external dependencies required—uses Python 3 stdlib only.
 
@@ -31,25 +31,20 @@ python3 scripts/elo-calculator.py leaderboard
 
 ## fetch-tournament-matches.py
 
-Fetch and explore tournament matches from Per-Ankh.
+Fetch and explore tournament matches from Per-Ankh — a browsing/broadcast-ops tool (casters, streams, scheduling), not a ratings tool. Fully flag-driven, no interactive prompts.
 
 ### Basic Usage
 
 ```bash
-# Default: 2026 Community Tournament
+# Default: 2026 Community Tournament, no filters
 python3 scripts/fetch-tournament-matches.py
 
-# Specify a different tournament by slug
-python3 scripts/fetch-tournament-matches.py 2026-community-tournament
+# Specify a different tournament, and filter by phase/division/status
+python3 scripts/fetch-tournament-matches.py --tournament 2026-community-tournament \
+  --phase swiss --division A --status complete
 ```
 
-The script prompts for filters interactively:
-
-```
-Filter by phase? (swiss/championship/all) [all]: all
-Filter by division? (A/B/all) [all]: A
-Filter by status? (pending/complete/all) [all]: complete
-```
+Run `--help` for the full flag list.
 
 ### Output
 
@@ -71,12 +66,14 @@ Shows each match with:
 
 ### Export Results
 
-After filtering, you can export to JSON:
+`--export` writes the filtered matches to a timestamped JSON file:
 
+```bash
+python3 scripts/fetch-tournament-matches.py --status pending --export
+# Exported 18 matches to tournament_matches_2026-community-tournament_20260818_120000.json
 ```
-Export to JSON? (y/n) [n]: y
-Exported 57 matches to tournament_matches_2026-community-tournament_20260816_120000.json
-```
+
+**This is a raw dump of the API's match objects — not the `elo-calculator.py --source` schema.** The two look superficially similar (both are "tournament match JSON") but aren't interchangeable; `elo-calculator.py` will refuse a file in this shape with a clear error rather than silently misreading it. If you want a `--source`-compatible file, use `elo-calculator.py export snapshot` instead (see below) — that's the one canonical way to turn a live tournament into a replayable snapshot.
 
 ---
 
@@ -372,13 +369,8 @@ python3 scripts/elo-calculator.py match XU_JOJEPkahajm2996JvF
 ### Explore Upcoming Matches
 
 ```bash
-# Browse available matches
-python3 scripts/fetch-tournament-matches.py
-
-# When prompted, filter for pending matches
-Filter by status? (pending/complete/all) [all]: pending
-
-# See which matches have casters scheduled
+# Browse pending matches, see which have casters scheduled
+python3 scripts/fetch-tournament-matches.py --status pending
 ```
 
 ---
@@ -423,16 +415,17 @@ Includes:
 
 ### Planned
 
-1. **Shared data-fetch module** — `fetch-tournament-matches.py` and `elo-calculator.py` each define their own `API_BASE`, `fetch_json()`, and tournament-loading logic. Extract into one shared module both scripts import from. (Identified during the initial build session, still open.)
-2. **Match dedup/conflict rule across sources** — the multi-source replay (see below) has no way to detect the same match appearing in two loaded sources (live API + a `--source` file, or two `--source` files) and would double-count it. Not currently a live risk — the one source file in `scripts/data/` covers an earlier, non-overlapping season — but there's no guard if that stops being true.
-3. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
-4. **Match-type weighting** — Different weights for user-submitted vs tournament matches
-5. **Web integration** — API endpoint for live ratings on tournament pages
+1. **Match dedup/conflict rule across sources** — the multi-source replay (see below) has no way to detect the same match appearing in two loaded sources (live API + a `--source` file, or two `--source` files) and would double-count it. Not currently a live risk — the one source file in `scripts/data/` covers an earlier, non-overlapping season, and both scripts' matches are date-stamped — but there's no guard if that stops being true.
+2. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
+3. **Match-type weighting** — Different weights for user-submitted vs tournament matches
+4. **Web integration** — API endpoint for live ratings on tournament pages
+5. **Automated test coverage** — neither script has any. Worth having before building further on top; two real correctness bugs (see design doc's Historical Record) were found only by manual code reading, not by anything failing.
 
 ### Done
 
 - ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` (gitignored, local-only) is where these live — see its README.
 - ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
+- ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
 
 ### Possible
 
