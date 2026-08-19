@@ -100,7 +100,7 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 
 **Still true from the original decision:**
 - Multiplayer/FFA games are still out of scope — the schema and the ELO update (`calculate_elo_delta`) are both strictly 1v1.
-- "How should 1v1 vs multiplayer be weighted" is still an open question, now merged with the match-type weighting question below.
+- "How should 1v1 vs. multiplayer be handled" is reframed, not resolved, as of 2026-08-19 — see Division Handling below. It's an architecture fork (pairwise math doesn't apply to 3+ players), not a weighting question.
 
 ---
 
@@ -113,16 +113,20 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 - No separate rating pools between Division A and B
 - All matches treated equally for ELO calculation
 
-**Future iterations (match-type weighting):**
-- Planned three-tier weighting: user-submitted < swiss tournament < elimination tournament
-- Requires: understanding how user-submitted multiplayer games are indexed; whether to include them; how to handle 3+ player FFA games
-- Stub: add `match_type` parameter to ELO calculator; set all current matches to `swiss`; implement weighting formula when scope expands
-- Example future weights: user-submitted K=32, swiss K=64, elimination K=80
-- **Before implementing:** read the FiveThirtyEight reference's corrected notes below (References & External Resources → "How We're Forecasting The 2016 U.S. Open") — their own tested data argues against this kind of importance-weighting, not for it. Doesn't block doing it (our axis is different), but go in aware, not assuming outside validation that doesn't actually exist.
+**Retired 2026-08-19: match-type importance weighting.** The original plan was a three-tier K-factor weighting (user-submitted < swiss < elimination), stubbed but never implemented. Backed out after independent evidence from two unrelated domains argued against it (discussion with project lead):
+- FiveThirtyEight tested importance-weighting Grand Slam vs. regular-tour tennis results and found it *hurt* prediction accuracy — see References & External Resources below.
+- USGA's World Handicap System explicitly does **not** weight competition scores differently from casual rounds in the handicap math itself; a "Competition" score tag exists only to support later analysis, not to change how much a given score moves the rating.
+- Both land on the same principle: don't presume a context-based weight helps without evidence it does. Tag provenance if it's useful for later analysis; don't build a weighting formula on the assumption that tournament results are inherently "worth more."
+
+**What actually needs handling instead — two distinct axes, correctly separated (neither is a weight):**
+
+1. **Eligibility: human vs. AI opponents.** A filter, not a weight — closer to WHS's peer-review eligibility gate (a score only counts if it's verifiably a real result) than to importance-weighting. Only human-vs-human results are rateable at all. Maps directly onto the app's existing `scope` classification (`cloud/src/games-scope.ts`): `vs_ai` games (exactly one human) must never enter the calculator; `mp` games (2+ humans) are the eligible pool. No new schema needed if/when this becomes a live data source — the field already exists and already distinguishes exactly this.
+2. **Architecture fork: 2-player vs. 3+ player pools.** A different algorithm, not a weight. `calculate_elo_delta()` and the whole canonical-match schema are strictly pairwise, and that's correct as-is for tournament matches, which are always exactly 2 players by construction — a Swiss/Championship "match" *is* slot_a vs. slot_b; no 3+ case exists in tournament data. This only becomes live if user-submitted multiplayer games are ever added as a source: a 3+ player FFA result can't be fed through the same pairwise formula unmodified. It needs either a genuinely different algorithm (e.g., decomposing an FFA into pairwise sub-results, or a placement-based system like TrueSkill) or explicit exclusion from rating — not a K-factor bolted onto the current pairwise math.
 
 **Not planned:**
 - Separate rating pools per division (A vs B)
 - Division-based point bonuses/maluses
+- Any K-factor weighting keyed to tournament phase or match "importance"
 
 ---
 
@@ -164,8 +168,14 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
   - **Reviewed 2026-08-19 against a saved copy of the archived page** (project lead retrieved it; see Historical Record). Corrects a mischaracterization this doc previously carried — the article was cited here as supporting match-type/recency weighting; it actually argues against that, on their own tested data.
   - **Baseline:** confirms 1500 as an arbitrary-but-symmetric start for unrated players — matches our decision directly, not just by analogy.
   - **K-factor:** they explicitly reject a flat/fixed K ("the crudest thing to do") for `K / (matches_played + offset)^shape`, fit to K=250, offset=5, shape=0.4 — a K that *shrinks as a player accumulates matches* (experience-based, not calendar-time-based — "recency weighting" was the wrong word for this). Effective K comes out to roughly 130 for a brand-new player and roughly 45 for one with ~50 matches. Our fixed K=64 sits inside that range for a typical Swiss-tournament participant's match count, but doesn't adapt with experience the way theirs does.
-  - **Match-type/importance weighting: they tested it and rejected it.** They tried weighting Grand Slam (best-of-5) results more heavily than regular tour matches and found predictions got *slightly less accurate*, so they didn't adopt it; they also tested set/game-level granularity (margin-of-victory-style) and found that unhelpful too. This is evidence against, not for, the currently-stubbed "user-submitted < swiss < elimination" weighting (see Division Handling above) — doesn't mean don't do it (their importance axis is Slam-vs-regular-tour, ours would be casual-vs-competitive, a different comparison), but this citation shouldn't be treated as precedent for it anymore.
+  - **Match-type/importance weighting: they tested it and rejected it.** They tried weighting Grand Slam (best-of-5) results more heavily than regular tour matches and found predictions got *slightly less accurate*, so they didn't adopt it; they also tested set/game-level granularity (margin-of-victory-style) and found that unhelpful too. Part of the evidence behind retiring our own match-type weighting plan entirely — see Division Handling above.
   - **What they did validate:** blending two separate Elo tracks — a player's overall rating and a surface-specific (hard-court) rating — for event-specific starting ratings, weighted 0.71 overall + 0.29 surface. No direct Old World analogue is planned, but a similar overall/context-specific blend (e.g., by nation or map type) is a more evidence-backed direction than importance-weighting, if this is ever revisited.
+
+- **USGA World Handicap System** — https://www.usga.org/content/usga/home-page/handicapping/world-handicap-system/topics.html (researched 2026-08-19, live web, not archived — see Historical Record)
+  - **Not Elo — a different rating system (Score Differential: `(113/Slope) × (Adjusted Gross Score − Course Rating − PCC)`), but directly relevant to the match-type weighting question** because it's a mature, widely-used system that had to make the same call we're making.
+  - **Tournament ("Competition") scores are not weighted differently in the math.** Per USGA's own FAQ, a "C"-designated competition score "is not used any differently for the purposes of calculating a Handicap Index" — same formula, same weight as any casual round. The tag exists only so a committee can *later analyze* whether players perform differently in competition vs. casual play — not to alter the calculation per-score.
+  - **What actually varies is eligibility, not weight** — a binary gate: every acceptable score, tournament or casual, requires peer review (played in the presence of a verifying person, posted promptly). No verification, no counting, regardless of context. A per-competition Committee can manually override a specific player's Playing Handicap if there's evidence it doesn't reflect demonstrated ability — a judgment call for one event, not an automated formula.
+  - **Relevant to Per-Ankh:** independent second source (unrelated domain, unrelated methodology) landing on the same principle as the FiveThirtyEight review above — tag match provenance for analysis if useful, don't build a weighting scheme on the assumption that competitive context inherently changes how much a result should count.
 
 - **"A Stumbling Block for Elo" (David Aldous, UC Berkeley)** — https://www.stat.berkeley.edu/~aldous/Papers/me-Elo-SS.pdf
   - **Academic perspective on Elo limitations:** Discusses convergence speed, player pool size effects, and when Elo breaks down
@@ -179,12 +189,13 @@ Historical sources can include players with no Per-Ankh account — e.g. someone
 | K-factor | ~32-40 | 32 default | Varies | **64** | ✓ Higher is correct for limited match volume; professional sports use lower K due to match frequency |
 | Persistence | Historical (years) | Per-session | Not discussed | **Fresh per run** | ✓ Appropriate for early iteration; persistence can be added later |
 | Division/Surface | No pools | No pools | Not discussed | **No pools** | ✓ Aligns with established precedent |
-| Match-type weighting | Implicit (tournament tier) | Not visible | Discussed as important | **Planned (stubbed)** | ⚠ FiveThirtyEight tested importance-weighting (Slam vs. regular tour) and found it *hurt* accuracy, so they dropped it — not the precedent this row previously claimed. Still plausible for us since our axis differs (casual vs. competitive, not just match "importance"), but goes in unvalidated, not FiveThirtyEight-backed. |
+| Match-type weighting | Implicit (tournament tier) | Not visible | Discussed as important | **Retired 2026-08-19** | ✓ Backed out — FiveThirtyEight tested it and found it hurt accuracy; USGA's WHS deliberately doesn't do it either. Replaced by two real axes (human/AI eligibility; 2-player vs. 3+ player architecture), neither a weight — see Division Handling above. |
 
 ---
 
 ## Historical Record
 
+- **2026-08-19:** Retired the match-type importance-weighting plan (user-submitted < swiss < elimination K-factors), on the combined evidence of the FiveThirtyEight review below and new research into USGA's World Handicap System (which explicitly does not weight competition scores differently from casual ones in the handicap math). Replaced with two correctly-separated real distinctions, neither a weight: an eligibility filter for human-vs-AI composition (maps onto the app's existing `scope: vs_ai/mp` classification) and an architecture fork for 2-player vs. 3+ player pools (pairwise Elo doesn't apply to FFA without a different algorithm). See Division Handling (discussion with project lead).
 - **2026-08-19:** Reviewed the FiveThirtyEight "2016 U.S. Open" reference against a saved archive copy (project lead retrieved it from the Wayback Machine, since the live article is gone and automated fetching of web.archive.org isn't available). Corrected this doc's characterization of it: it does not support match-type/recency weighting the way the References section and Assessment table previously claimed — the article's own tested finding is that importance-weighting (Grand Slam vs. regular tour) *hurt* prediction accuracy, so FiveThirtyEight deliberately didn't adopt it. What it does validate: our 1500 baseline, and (as a new data point) a surface-specific/overall Elo blend that has no current Per-Ankh analogue. No behavior changes from this review — documentation accuracy only.
 - **2026-08-18:** Extended test coverage to the other two scripts: `test_fetch_tournament_matches.py` (14 tests -- extracted `filter_matches()` out of `main()` first so the phase/division/status filtering is unit-testable; also a regression test for the nation/map `None`-vs-missing-key crash fixed the same day the script was converted to argparse) and `test_per_ankh_api.py` (8 tests, `unittest.mock.patch` on `urlopen` -- no network calls -- scoped to URL construction and the `None`-vs-`[]` distinction in `fetch_tournament_matches()`, which the two calling scripts treat differently). Same verification standard as below: every regression test confirmed to actually fail when its named bug is reintroduced.
 - **2026-08-18:** Added `scripts/test_elo_calculator.py` (stdlib `unittest`, no new dependency) — 26 tests covering `calculate_ratings()`, `load_source_file()` validation, `find_player()`, `preferred_name()`/`transliterate()`, and the `export snapshot` round-trip. Every regression test in it was verified to actually catch the bug it names: reintroduced each historical bug's effect into the current code via monkey-patching and confirmed the corresponding test fails, then confirmed it passes again against the real fixed code — not just "written to pass," actually load-bearing.
