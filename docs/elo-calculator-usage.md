@@ -31,11 +31,17 @@ python3 scripts/elo-calculator.py leaderboard
 
 ```bash
 python3 scripts/test_elo_calculator.py
+python3 scripts/test_fetch_tournament_matches.py
+python3 scripts/test_per_ankh_api.py
 ```
 
-`unittest`, stdlib only — no test runner or dependency to install. Covers `elo-calculator.py` only: the core rating computation, `--source` file loading/validation, player lookup, display normalization, and the `export snapshot` round-trip, offline (no network calls). Run this before changing `calculate_ratings()`, `load_source_file()`, `preferred_name()`/`transliterate()`, or `find_player()` — every test in here is either a regression for a real bug found in this codebase's history (see design doc's Historical Record) or a property that was manually spot-checked at the time a feature was built and is now easy to accidentally break silently.
+`unittest`, stdlib only (`unittest.mock` for `per_ankh_api.py`'s tests) — no test runner or dependency to install, no network calls. Run the relevant file before changing:
 
-`fetch-tournament-matches.py` and `per_ankh_api.py`'s actual network-calling functions have no test coverage yet.
+- `test_elo_calculator.py` — `calculate_ratings()`, `load_source_file()`, `preferred_name()`/`transliterate()`, `find_player()`, the `export snapshot` round-trip.
+- `test_fetch_tournament_matches.py` — `format_datetime()`, `filter_matches()`, `print_match()`.
+- `test_per_ankh_api.py` — `fetch_json()`/`fetch_tournament()`/`fetch_tournament_matches()`; mocks `urlopen`, scoped to URL construction and the `None`-vs-`[]` distinction (fetch failure vs. genuinely zero matches — the two callers handle this differently, so collapsing it back together, like both scripts did before this module existed, would silently turn a real fetch failure into "0 matches" instead of an error).
+
+Every test across all three files is either a regression for a real bug found in this codebase's history (see design doc's Historical Record) or a property that was manually spot-checked at the time a feature was built and is now easy to accidentally break silently. Each regression test was verified to actually catch its named bug — not just written to pass — by reintroducing the bug's effect and confirming the test fails, then confirming it passes again against the real fixed code.
 
 ---
 
@@ -436,7 +442,7 @@ Includes:
 
 - ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` (gitignored, local-only) is where these live — see its README.
 - ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
-- ~~**Automated test coverage (elo-calculator.py)**~~ — `scripts/test_elo_calculator.py`, stdlib `unittest`; see [Testing](#testing). `fetch-tournament-matches.py` and `per_ankh_api.py`'s actual network calls remain untested.
+- ~~**Automated test coverage**~~ — all three scripts (`elo-calculator.py`, `fetch-tournament-matches.py`, `per_ankh_api.py`), stdlib `unittest`; see [Testing](#testing).
 - ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
 - ~~**Same-date match ordering**~~ — matches sharing an exact `date` are now computed as a batch against pre-batch ratings, not sequentially in file order (was previously order-dependent, and therefore not reproducible, whenever a player had two same-date matches); see [Chronological replay](#chronological-replay).
 
