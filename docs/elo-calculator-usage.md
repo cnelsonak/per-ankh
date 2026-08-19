@@ -27,6 +27,14 @@ python3 scripts/fetch-tournament-matches.py
 python3 scripts/elo-calculator.py leaderboard
 ```
 
+### Testing
+
+```bash
+python3 scripts/test_elo_calculator.py
+```
+
+`unittest`, stdlib only — no test runner or dependency to install. Covers the core rating computation, `--source` file loading/validation, player lookup, display normalization, and the `export snapshot` round-trip, offline (no network calls). Run this before changing `calculate_ratings()`, `load_source_file()`, `preferred_name()`/`transliterate()`, or `find_player()` — every test in here is either a regression for a real bug found in this codebase's history (see design doc's Historical Record) or a property that was manually spot-checked at the time a feature was built and is now easy to accidentally break silently.
+
 ---
 
 ## fetch-tournament-matches.py
@@ -421,12 +429,12 @@ Includes:
 2. **Time-sliced evaluation** — ratings as of a given date, or replay restricted to a date range. Every canonical match already carries a `date`; the multi-source replay just doesn't filter on it yet.
 3. **Match-type weighting** — Different weights for user-submitted vs tournament matches
 4. **Web integration** — API endpoint for live ratings on tournament pages
-5. **Automated test coverage** — neither script has any. Worth having before building further on top; two real correctness bugs (see design doc's Historical Record) were found only by manual code reading, not by anything failing.
 
 ### Done
 
 - ~~**Local match-data cache/importer**~~ / ~~**Secondary match-data source**~~ / ~~**Multi-tournament ratings**~~ — `--source` (repeatable) replays historical match files alongside the live tournament in one chronological pass, normalized into a common schema; see [Historical data & multiple sources](#historical-data--multiple-sources). `scripts/data/` (gitignored, local-only) is where these live — see its README.
 - ~~**Rating persistence between runs**~~ — `export snapshot` writes a live tournament's matches to that same portable schema, so re-running doesn't require re-querying the API.
+- ~~**Automated test coverage**~~ — `scripts/test_elo_calculator.py`, stdlib `unittest`; see [Testing](#testing).
 - ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
 - ~~**Same-date match ordering**~~ — matches sharing an exact `date` are now computed as a batch against pre-batch ratings, not sequentially in file order (was previously order-dependent, and therefore not reproducible, whenever a player had two same-date matches); see [Chronological replay](#chronological-replay).
 
