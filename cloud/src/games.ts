@@ -2118,6 +2118,12 @@ export async function handleGameList(
 	// header — see the matching COALESCE in handleGameDetail.
 	const orderBy = resolveGameListOrder(url.searchParams.get("sort"));
 	const rows = await env.SHARE_DB.prepare(
+		// PROTOTYPE (2026-08-20): xml_game_id added -- see design doc's "Match
+		// Deduplication via xml_game_id" section. Not PII; already stored on
+		// every row, just never returned before. Lets a consumer detect two
+		// uploads of the same underlying game by equality, no server-side
+		// resolution needed (unlike the online_id/opponent-identity prototype
+		// on explore/opponent-id-from-save).
 		`SELECT game_id, game_name, display_name, save_date, total_turns,
 		        COALESCE(user_nation, (
 		            SELECT ps.nation FROM player_summaries ps
@@ -2126,7 +2132,8 @@ export async function handleGameList(
 		        )) AS user_nation,
 		        user_nation AS uploader_nation,
 		        user_won, winner_nation, victory_type,
-		        map_size, is_public, collection_id, created_at, parser_version
+		        map_size, is_public, collection_id, created_at, parser_version,
+		        xml_game_id
 		 FROM games WHERE ${where}
 		 ORDER BY ${orderBy}
 		 LIMIT ? OFFSET ?`,
@@ -2447,8 +2454,11 @@ export async function handleGameDetail(
 	// uploader didn't pick one. The header also drops its client-side
 	// players-array fallback now that this query supplies a usable value.
 	const row = await env.SHARE_DB.prepare(
+		// PROTOTYPE (2026-08-20): g.xml_game_id added -- see design doc's
+		// "Match Deduplication via xml_game_id" section. Not PII; lets a
+		// consumer detect two uploads of the same underlying game.
 		`SELECT g.user_id, g.is_public, g.display_name, g.user_won,
-		        g.parser_version,
+		        g.parser_version, g.xml_game_id,
 		        g.user_nation AS uploader_nation,
 		        COALESCE(g.user_nation, (
 		            SELECT ps.nation FROM player_summaries ps
@@ -2468,6 +2478,8 @@ export async function handleGameDetail(
 			display_name: string | null;
 			// Part of the blob cache key — see cacheKey in blob-cache.ts.
 			parser_version: string;
+			// PROTOTYPE: see the SELECT comment above.
+			xml_game_id: string;
 			user_nation: string | null;
 			// Raw uploader choice (un-COALESCE'd) for the reparse round-trip;
 			// null = observer upload. Distinct from user_nation above, which
@@ -2577,6 +2589,8 @@ export async function handleGameDetail(
 		user_display_name: row.user_display_name,
 		user_slug: row.user_slug,
 		display_name: row.display_name,
+		// PROTOTYPE (2026-08-20): not PII -- see the SELECT comment above.
+		xml_game_id: row.xml_game_id,
 	};
 	const bodyText = JSON.stringify(transformed);
 

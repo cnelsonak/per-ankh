@@ -216,6 +216,12 @@ export interface GameListItem {
 	collection_id: number | null;
 	created_at: string;
 	parser_version: string;
+	// PROTOTYPE (2026-08-20): not PII -- see cloud/src/games.ts's
+	// handleGameList and the design doc's "Match Deduplication via
+	// xml_game_id" section. Identical across every upload of the same
+	// underlying multiplayer game session; lets a consumer detect duplicate
+	// uploads by equality.
+	xml_game_id: string;
 }
 
 export interface CollectionInfo {
@@ -748,6 +754,10 @@ export const cloudApi = {
 			// its tournament's slug.
 			user_slug?: string | null;
 			display_name?: string | null;
+			// PROTOTYPE (2026-08-20): not PII -- see cloud/src/games.ts's
+			// handleGameDetail and the design doc's "Match Deduplication via
+			// xml_game_id" section.
+			xml_game_id?: string;
 		}
 	> => {
 		const res = await request(`/games/${id}`, opts);
@@ -761,6 +771,7 @@ export const cloudApi = {
 				user_display_name?: string | null;
 				user_slug?: string | null;
 				display_name?: string | null;
+				xml_game_id?: string;
 			}
 		>;
 	},
@@ -780,6 +791,8 @@ export const cloudApi = {
 			user_display_name?: string | null;
 			user_slug?: string | null;
 			display_name?: string | null;
+			// PROTOTYPE (2026-08-20): see getGame above.
+			xml_game_id?: string;
 		}
 	> => {
 		const f = opts?.fetch ?? fetch;
@@ -800,6 +813,7 @@ export const cloudApi = {
 				user_display_name?: string | null;
 				user_slug?: string | null;
 				display_name?: string | null;
+				xml_game_id?: string;
 			}
 		>;
 	},
