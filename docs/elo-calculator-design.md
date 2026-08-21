@@ -144,6 +144,20 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ---
 
+## Match Deduplication via `xml_game_id` — Verified Feasible (2026-08-19)
+
+**The question:** if two different participants each upload their own save from the *same* game, can we detect that and reconcile rather than double-counting? Directly relevant to `elo-calculator-usage.md`'s "Match dedup/conflict rule across sources" Planned item.
+
+**Verified, not just found in the schema:** every save's XML root carries a `GameId` attribute — confirmed directly against a real save file, where it read as a standard UUID (`8a378aa9-cfd6-4ce6-b18e-3709c9043d27`) sitting alongside other *session-level* settings (`MapClass`, `MapSize`, `MapAspectRatio`, engine `Version`), not anything player- or upload-specific. Per-Ankh's parser already extracts this into `xml_game_id` (`src/lib/parser/parsers/match-metadata.ts`, from `root["@_GameId"]`), and it's stored on every `games` row (`NOT NULL` column, `cloud/migrations/0002_cloud_schema.sql`).
+
+**Unlike the opponent-identity gap above, this isn't blocked by a privacy boundary — it's a simpler omission.** `xml_game_id` isn't PII. It's just not currently exposed anywhere in the public API (`GET /v1/games` and `GET /v1/games/:id` both omit it) and not used server-side either — no index on the column, no dedup query against it anywhere. It's write-only today: stored, never read back.
+
+**What would unblock this — also worth raising with the API developers, and lower-friction than the identity fix:** expose `xml_game_id` on the game list/detail responses (or a dedicated lookup). Any consumer could then detect "these two uploads are the same underlying game" directly by comparing the field, no server-side resolution logic or PII handling required — a plain equality check.
+
+**Not verified, only inferred from one data point:** whether `GameId` stays stable across multiple saves of the *same ongoing game* (e.g., an earlier-turn save vs. a later one), since only one save file was available to check. It reads as session-level rather than per-save, so stability across turns is the expected behavior, but that's inference, not confirmation the way the cross-player question is.
+
+---
+
 ## Division Handling
 
 **Decision:** Equal weight for all matches (no per-division pools or modifiers)
@@ -235,6 +249,7 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ## Historical Record
 
+- **2026-08-19:** Verified match-dedup is feasible via `xml_game_id` — every save's XML root carries a `GameId` UUID at the session level (confirmed against the same real save file used for the identity check below), already parsed and stored on every `games` row, just never exposed via the public API or used for dedup server-side. Unlike the opponent-identity gap, not privacy-blocked — a plain omission, simpler to raise with the API developers. Directly resolves the open question in `elo-calculator-usage.md`'s "Match dedup/conflict rule across sources" Planned item.
 - **2026-08-19:** Empirically verified the user-submitted-games blocker (below) against a real 1v1 save file the project lead provided, rather than leaving it inferred from the parser schema alone. Both human seats had a distinct, populated Steam64 `OnlineID` in the raw save XML — confirms the gap is entirely a Per-Ankh API/policy choice, not missing save-file data. (Steam IDs and the real players' names aren't recorded here — this repo is public.)
 - **2026-08-19:** Researched pulling user-submitted (non-tournament) games as an ELO data source — the natural next step after retiring match-type weighting, since we'd already decided to weight them identically to tournament matches and exclude AI/non-1v1 games. Found genuinely blocked, not just unbuilt: the public API never resolves a casual game's non-uploader players to Per-Ankh accounts (confirmed by reading `cloud/src/games.ts`'s game-detail handler directly), unlike tournament matches, which identify both sides at the match-registration level before a game is even played. Documented as its own section with a specific, privacy-respecting proposed fix (project lead intends to raise it with the API developers), rather than folded into the Planned list where it would misleadingly read as just an implementation task.
 - **2026-08-19:** Added a "Why a Rating System?" section up front — the doc previously jumped straight into parameter-level decisions (baseline, K-factor, ...) without ever stating the actual goal. Established (discussion with project lead): the point is building/sustaining a community and enabling future matchmaking, modeled on USGA's stated purpose for golf handicaps — not prediction, which is FiveThirtyEight's goal in the cited research and isn't a feature this project has built. Docs only; no behavior change, but this reframes the *reason* behind existing choices like the aggressive fixed K=64.
