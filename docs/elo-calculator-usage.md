@@ -27,6 +27,7 @@ No installation needed. Just run the scripts from the repo root:
 ```bash
 python3 scripts/fetch-tournament-matches.py
 python3 scripts/elo-calculator.py leaderboard
+python3 scripts/elo-calculator.py h2h <player_a> <player_b>
 ```
 
 ### Testing
@@ -194,7 +195,42 @@ Shows:
 - Opponent names
 - Win/loss/delta per match
 
-#### 4. Export to JSON
+#### 4. Head-to-Head
+
+View the direct record between two players plus the current ELO-implied win probability between them:
+
+```bash
+python3 scripts/elo-calculator.py h2h alcaras zophister
+```
+
+**Output:**
+
+```
+==========================================================================================
+Head-to-Head: alcaras vs zophister
+==========================================================================================
+
+Current ratings: alcaras 1557  |  zophister 1473
+ELO win probability: alcaras 62%  |  zophister 38%
+
+Head-to-head record: alcaras 2 - 1 zophister  (3 meetings)
+
+#    Date                 Winner                    Nations                        Map            
+------------------------------------------------------------------------------------------
+1    2025-01-01           alcaras                   NATION_PERSIA vs NATION_ROME   InlandSea      
+2    2025-01-05           zophister                 NATION_ROME vs NATION_PERSIA   AridPlateau    
+3    2025-01-10           alcaras                   NATION_ROME vs NATION_PERSIA   InlandSea      
+==========================================================================================
+```
+
+Shows:
+- Both players' current ratings and the ELO-implied win probability between them (`calculate_expected_score`, the same formula used for every match's delta — see [Understanding ELO Ratings](#understanding-elo-ratings))
+- Their direct W-L record against each other, and every match they've played against each other, in date order
+- With no prior meetings, the record/probability still print; the match table is replaced with "No previous meetings."
+
+Either argument can be a slug or `user_id`, same resolution as the `player` command (including synthetic players, for auditing a historical meeting — though see [Synthetic players](#synthetic-players) for why they're excluded elsewhere). Matches involving a third player never count toward a pair's head-to-head, regardless of how many other opponents either player has faced.
+
+#### 5. Export to JSON
 
 Export full ratings and match history:
 
@@ -205,7 +241,7 @@ python3 scripts/elo-calculator.py export json
 
 Includes tournament metadata, all player ratings, and full match history.
 
-#### 5. Export to CSV
+#### 6. Export to CSV
 
 Export leaderboard as CSV for spreadsheets:
 
@@ -225,7 +261,7 @@ Rank,User ID,Slug,Display Name,Rating,Matches,Wins,Losses
 
 `export json`/`export csv`/`leaderboard` only ever list real Per-Ankh accounts — see [Synthetic players](#synthetic-players) below for why some match participants never show up here even though their results counted.
 
-#### 6. Export a Snapshot (for offline replay)
+#### 7. Export a Snapshot (for offline replay)
 
 Dump the live-fetched tournament's raw matches to a portable file, so a future run can replay them without hitting the API again:
 
@@ -255,7 +291,7 @@ python3 scripts/elo-calculator.py --source file1.json --source file2.json leader
 python3 scripts/elo-calculator.py --no-live --source scripts/data/prospector-2025-tournament-matches.json leaderboard
 ```
 
-`--source` and `--no-live` work with every command (`leaderboard`, `match`, `player`, `export`), and combine with `--tournament` to pick a different live tournament.
+`--source` and `--no-live` work with every command (`leaderboard`, `match`, `player`, `h2h`, `export`), and combine with `--tournament` to pick a different live tournament.
 
 ### Source file schema
 
@@ -453,10 +489,10 @@ Includes:
 - ~~**Automated test coverage**~~ — all three scripts (`elo-calculator.py`, `fetch-tournament-matches.py`, `per_ankh_api.py`), stdlib `unittest`; see [Testing](#testing).
 - ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
 - ~~**Same-date match ordering**~~ — matches sharing an exact `date` are now computed as a batch against pre-batch ratings, not sequentially in file order (was previously order-dependent, and therefore not reproducible, whenever a player had two same-date matches); see [Chronological replay](#chronological-replay).
+- ~~**Head-to-head records**~~ — `h2h <player_a> <player_b>` shows the direct match history and W-L record between two players, plus the current ELO-implied win probability between them; see [Head-to-Head](#4-head-to-head) (2026-08-25).
 
 ### Possible
 
-- Head-to-head records (H2H matrices)
 - Performance by nation/archetype
 - Chart ratings over tournament timeline
 - **Printable/friendly export (e.g. PDF)** — `export json`/`csv`/`snapshot` are all machine-readable; nothing currently produces a shareable, presentation-friendly leaderboard. Would likely be the first real external dependency these scripts pull in (breaking the current stdlib-only precedent) unless done via something minimal like styled HTML meant for browser print-to-PDF instead of a PDF library — worth deciding which before starting.
