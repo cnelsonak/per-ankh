@@ -294,6 +294,62 @@ class TestFindPlayer(unittest.TestCase):
         self.assertIsNone(self._calc().find_player("nobody-here"))
 
 
+class TestHeadToHead(unittest.TestCase):
+    def _calc(self):
+        calc = elo.ELOCalculator()
+        calc.canonical_matches = [
+            # alcaras beats zophister twice, loses once, in different slots.
+            make_match("m1", "2025-01-01", make_ref("alcaras"), make_ref("zophister"), "a"),
+            make_match("m2", "2025-01-05", make_ref("zophister"), make_ref("alcaras"), "b"),
+            make_match("m3", "2025-01-10", make_ref("zophister"), make_ref("alcaras"), "a"),
+            # A match against a third player must not count toward the h2h.
+            make_match("m4", "2025-01-15", make_ref("alcaras"), make_ref("boldus"), "a"),
+        ]
+        calc.calculate_ratings()
+        return calc
+
+    def test_record_and_winner_correct_regardless_of_slot(self):
+        calc = self._calc()
+        pa = calc.find_player("alcaras")
+        pb = calc.find_player("zophister")
+        ids = {pa.user_id, pb.user_id}
+        matches = sorted(
+            (m for m in calc.canonical_matches if {m.player_a.user_id, m.player_b.user_id} == ids),
+            key=lambda m: m.date,
+        )
+        self.assertEqual(len(matches), 3)
+
+        def pa_won(m):
+            winner_ref = m.player_a if m.winner == "a" else m.player_b
+            return winner_ref.user_id == pa.user_id
+
+        self.assertEqual(sum(1 for m in matches if pa_won(m)), 2)
+
+    def test_third_player_matches_excluded(self):
+        calc = self._calc()
+        pa = calc.find_player("alcaras")
+        pb = calc.find_player("zophister")
+        ids = {pa.user_id, pb.user_id}
+        matches = [m for m in calc.canonical_matches if {m.player_a.user_id, m.player_b.user_id} == ids]
+        match_ids = {m.match_id for m in matches}
+        self.assertNotIn("m4", match_ids)
+
+    def test_unknown_player_returns_none_via_find_player(self):
+        calc = self._calc()
+        self.assertIsNone(calc.find_player("nobody-here"))
+
+    def test_expected_score_matches_calculate_expected_score(self):
+        calc = self._calc()
+        pa = calc.find_player("alcaras")
+        pb = calc.find_player("zophister")
+        expected_a = calc.calculate_expected_score(pa.rating, pb.rating)
+        expected_b = calc.calculate_expected_score(pb.rating, pa.rating)
+        self.assertAlmostEqual(expected_a + expected_b, 1.0)
+        # alcaras won 2 of 3 meetings, so should be rated (and favored) higher.
+        self.assertGreater(pa.rating, pb.rating)
+        self.assertGreater(expected_a, 0.5)
+
+
 class TestExportSnapshotRoundTrip(unittest.TestCase):
     def test_export_then_reload_matches_original_ratings(self):
         original = elo.ELOCalculator("test-tournament")

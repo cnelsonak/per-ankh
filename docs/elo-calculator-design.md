@@ -188,6 +188,20 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ---
 
+## Head-to-Head (2026-08-25)
+
+**Decision:** `h2h <player_a> <player_b>` shows the two players' direct match history/W-L record against each other, plus the current ELO-implied win probability between them (`calculate_expected_score(rating_a, rating_b)` — the same formula every match delta already uses).
+
+**Scope, decided up front (discussion with contributor) to avoid over-building:** raw record + win probability only. Two adjacent ideas were considered and explicitly deferred, not rejected:
+- **Per-meeting upset detection** (what ELO expected at the time of each past match vs. what happened) — the `match` command already shows this for one match at a time; folding it into `h2h` is a natural follow-up if wanted, but wasn't asked for.
+- **A probability-only lookup with no match history** — rejected as strictly less useful than showing both; the history costs nothing extra to compute since `canonical_matches` already holds every match.
+
+**Rationale for reusing `find_player`/`preferred_name` rather than new lookup logic:** identical resolution to the existing `player` command (slug, `display_name`, or `user_id`, case-insensitive) — no reason for `h2h`'s two arguments to resolve differently than a single-player lookup already does. This also means synthetic players work here exactly as they do for `player`/`match` (auditable, not a special case) — see [Synthetic players](#synthetic-players-2026-08-18) above.
+
+**Implementation note:** matches between the pair are found by filtering `canonical_matches` on `{m.player_a.user_id, m.player_b.user_id} == {pa.user_id, pb.user_id}` — a set comparison, so it's correct regardless of which player occupies which slot in a given match (the same slot-independence bug class fixed in `calculate_ratings()`/`print_match()` on 2026-08-17, see Player Identity's Historical Record entries — worth remembering as a recurring failure mode in this codebase whenever slot A/B appears in new code).
+
+---
+
 ## Output Format
 
 **Decision:** Multiple command modes (CLI-selectable)
@@ -253,6 +267,7 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ## Historical Record
 
+- **2026-08-25:** Added `h2h <player_a> <player_b>` — direct match history/record between two players plus the ELO-implied win probability between them. Scoped deliberately to raw record + probability only, deferring per-meeting upset detection as a possible follow-up rather than building it unrequested (discussion with contributor). See [Head-to-Head](#head-to-head-2026-08-25) above.
 - **2026-08-20:** Confirmed the actual target scenario directly: the contributor's own save and their opponent's independently-uploaded save of the same game carry an identical `GameId`. Everything checked previously used saves from a single uploader (same-person, different turns/games); this is the first cross-participant confirmation — two different people, two different files, matching identifier. Also confirmed `xml_game_id` can never coincide with Per-Ankh's own `game_id` (different generator, length, and format), by code inspection and an empirical test request.
 - **2026-08-20:** Confirmed `GameId` stability across turns of the same game, using two more save files the contributor provided (Turn 90 and Turn 98 of the same match: identical `GameId`; a third, unrelated match sharing one player: different `GameId`). Upgrades the "Match Deduplication via `xml_game_id`" section from partially-inferred to fully verified. As a real-world side effect, also resolved a save the contributor was themselves unsure about — confirmed to be a different game than they thought, by `GameId` mismatch.
 - **2026-08-19:** Verified match-dedup is feasible via `xml_game_id` — every save's XML root carries a `GameId` UUID at the session level (confirmed against the same real save file used for the identity check below), already parsed and stored on every `games` row, just never exposed via the public API or used for dedup server-side. Unlike the opponent-identity gap, not privacy-blocked — a plain omission, simpler to raise with the API developers. Directly resolves the open question in `elo-calculator-usage.md`'s "Match dedup/conflict rule across sources" Planned item.

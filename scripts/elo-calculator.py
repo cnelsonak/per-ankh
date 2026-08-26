@@ -6,6 +6,7 @@ Usage:
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] leaderboard
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] match <match_id>
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] player <player_slug|user_id>
+    python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] h2h <player_a> <player_b>
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] export <json|csv|snapshot>
 
 By default, fetches the live Per-Ankh tournament (--tournament, default
@@ -480,6 +481,60 @@ class ELOCalculator:
 
         print("=" * 100)
 
+    def print_head_to_head(self, identifier_a: str, identifier_b: str) -> None:
+        """Print the direct match history and ELO win probability between two players."""
+        pa = self.find_player(identifier_a)
+        if not pa:
+            print(f"Player '{identifier_a}' not found. Use the slug shown on the leaderboard.", file=sys.stderr)
+            return
+        pb = self.find_player(identifier_b)
+        if not pb:
+            print(f"Player '{identifier_b}' not found. Use the slug shown on the leaderboard.", file=sys.stderr)
+            return
+        if pa.user_id == pb.user_id:
+            print("Cannot compare a player against themselves.", file=sys.stderr)
+            return
+
+        name_a = preferred_name(pa.slug, pa.display_name, pa.source)
+        name_b = preferred_name(pb.slug, pb.display_name, pb.source)
+
+        ids = {pa.user_id, pb.user_id}
+        matches = sorted(
+            (m for m in self.canonical_matches if {m.player_a.user_id, m.player_b.user_id} == ids),
+            key=lambda m: m.date,
+        )
+
+        def pa_won(m: CanonicalMatch) -> bool:
+            winner_ref = m.player_a if m.winner == "a" else m.player_b
+            return winner_ref.user_id == pa.user_id
+
+        wins_a = sum(1 for m in matches if pa_won(m))
+        wins_b = len(matches) - wins_a
+
+        expected_a = self.calculate_expected_score(pa.rating, pb.rating)
+
+        print("\n" + "=" * 90)
+        print(f"Head-to-Head: {name_a} vs {name_b}")
+        print("=" * 90)
+        print(f"\nCurrent ratings: {name_a} {pa.rating:.0f}  |  {name_b} {pb.rating:.0f}")
+        print(f"ELO win probability: {name_a} {expected_a:.0%}  |  {name_b} {1 - expected_a:.0%}")
+        print(f"\nHead-to-head record: {name_a} {wins_a} - {wins_b} {name_b}"
+              f"  ({len(matches)} meeting{'s' if len(matches) != 1 else ''})")
+
+        if not matches:
+            print("\nNo previous meetings.")
+            print("=" * 90)
+            return
+
+        print(f"\n{'#':<4} {'Date':<20} {'Winner':<25} {'Nations':<30} {'Map':<15}")
+        print("-" * 90)
+        for idx, m in enumerate(matches, 1):
+            date = m.date.split()[0] if m.date else "N/A"
+            winner_name = name_a if pa_won(m) else name_b
+            nations = f"{m.nation_a or 'N/A'} vs {m.nation_b or 'N/A'}"
+            print(f"{idx:<4} {date:<20} {winner_name:<25} {nations:<30} {m.map_name or 'N/A':<15}")
+        print("=" * 90)
+
     def export_json(self, filename: Optional[str] = None) -> None:
         """Export the leaderboard (real accounts only) to JSON."""
         if not filename:
@@ -611,6 +666,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_player = sub.add_parser("player", help="Show a player's match history")
     p_player.add_argument("identifier", help="Player slug or user_id")
 
+    p_h2h = sub.add_parser("h2h", help="Show head-to-head record and ELO win probability between two players")
+    p_h2h.add_argument("player_a", help="First player's slug or user_id")
+    p_h2h.add_argument("player_b", help="Second player's slug or user_id")
+
     p_export = sub.add_parser("export", help="Export data to a file")
     p_export.add_argument("format", choices=["json", "csv", "snapshot"])
 
@@ -645,6 +704,8 @@ def main():
         calc.print_match(args.match_id)
     elif args.command == "player":
         calc.print_player(args.identifier)
+    elif args.command == "h2h":
+        calc.print_head_to_head(args.player_a, args.player_b)
     elif args.command == "export":
         if args.format == "json":
             calc.export_json()
