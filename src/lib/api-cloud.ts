@@ -194,6 +194,19 @@ export interface UserMe {
 	stream_url: string | null;
 }
 
+// A player_roster seat whose online_id (Steam/GOG/Epic) matched exactly one
+// Per-Ankh account via user_online_ids. Never carries the raw online_id — see
+// cloud/src/games.ts's resolveRosterIdentities. Omitted for a seat with no
+// match (AI, unmatched online_id, or an online_id claimed by more than one
+// account) and for every seat on a tournament-linked game, where the frontend
+// already resolves identity via GET /v1/games/:id/tournament-link.
+export interface ResolvedRosterIdentity {
+	player_index: number;
+	user_id: string;
+	slug: string | null;
+	display_name: string;
+}
+
 export interface GameListItem {
 	game_id: string;
 	game_name: string | null;
@@ -748,6 +761,7 @@ export const cloudApi = {
 			// its tournament's slug.
 			user_slug?: string | null;
 			display_name?: string | null;
+			resolved_players?: ResolvedRosterIdentity[];
 		}
 	> => {
 		const res = await request(`/games/${id}`, opts);
@@ -761,6 +775,7 @@ export const cloudApi = {
 				user_display_name?: string | null;
 				user_slug?: string | null;
 				display_name?: string | null;
+				resolved_players?: ResolvedRosterIdentity[];
 			}
 		>;
 	},
@@ -780,6 +795,7 @@ export const cloudApi = {
 			user_display_name?: string | null;
 			user_slug?: string | null;
 			display_name?: string | null;
+			resolved_players?: ResolvedRosterIdentity[];
 		}
 	> => {
 		const f = opts?.fetch ?? fetch;
@@ -800,6 +816,7 @@ export const cloudApi = {
 				user_display_name?: string | null;
 				user_slug?: string | null;
 				display_name?: string | null;
+				resolved_players?: ResolvedRosterIdentity[];
 			}
 		>;
 	},

@@ -2408,14 +2408,11 @@ export async function handlePublicRecentGames(
 	});
 }
 
-// PROTOTYPE (2026-08-19) -- demonstrates the fix proposed in per-ankh's
-// scripts/docs/elo-calculator-design.md § "User-Submitted Games as a Data
-// Source -- Blocked". Not wired into any route change here beyond
-// handleGameDetail below, and not intended to merge as-is: a real PR would
-// also update src/lib/api-cloud.ts's client type and add integration tests
-// alongside the existing games/* suite (see
-// cloud/test/integration/games/resolved-players.test.ts for a demonstration
-// of the latter).
+// Fix for the gap documented in per-ankh's scripts/docs/elo-calculator-design.md
+// § "User-Submitted Games as a Data Source -- Blocked": a casual upload only
+// ever resolves the uploader's own identity, so the opponent in a non-tournament
+// 1v1 can't be linked back to a Per-Ankh account. See
+// cloud/test/integration/games/resolved-players.test.ts.
 //
 // Resolves each human player_roster seat's online_id to a Per-Ankh account
 // via user_online_ids (idx_user_online_ids_online already supports this
@@ -2538,7 +2535,10 @@ export async function handleGameDetail(
 		            ORDER BY ps.player_index ASC LIMIT 1
 		        )) AS user_nation,
 		        ${displayNameSql("u")} AS user_display_name,
-		        u.slug AS user_slug
+		        u.slug AS user_slug,
+		        EXISTS (
+		            SELECT 1 FROM tournament_matches WHERE game_id = g.game_id
+		        ) AS is_tournament_linked
 		 FROM games g
 		 JOIN users u ON g.user_id = u.user_id
 		 WHERE g.game_id = ?`,
@@ -2560,6 +2560,9 @@ export async function handleGameDetail(
 			// Prefixed: these fields are spread onto the blob, which already
 			// carries the game's own identity (see the transform below).
 			user_slug: string | null;
+			// Backed by idx_matches_game (migrations/0006_tournaments.sql) --
+			// see resolveRosterIdentities' gating below.
+			is_tournament_linked: number;
 		}>();
 	if (!row) return errorResponse("Not found", 404, cors, "NOT_FOUND");
 
@@ -2648,17 +2651,25 @@ export async function handleGameDetail(
 	const baseBlob = isOwner
 		? { ...(parsed as Record<string, unknown>), is_public: isPublic }
 		: (stripOnlineIds(parsed) as Record<string, unknown>);
-	// PROTOTYPE: resolved from the pre-strip roster (raw online_ids), but only
-	// the derived user_id/slug/display_name ever reach the response -- see
+	// Resolved from the pre-strip roster (raw online_ids), but only the
+	// derived user_id/slug/display_name ever reach the response -- see
 	// resolveRosterIdentities above. Independent of isOwner: this is not the
 	// same PII boundary stripOnlineIds enforces, and applies identically to
 	// owner and non-owner reads.
+	//
+	// Skipped for tournament-linked games: the frontend already resolves
+	// identity for those via GET /v1/games/:id/tournament-link (tournament
+	// matches identify both players at registration time, independent of the
+	// save), which every game-page render calls regardless. Running this
+	// query too would be a redundant online_id lookup on the one class of
+	// game where the answer is already known.
 	const rawRoster = (parsed as Record<string, unknown>).player_roster as
 		| PlayerRosterEntry[]
 		| undefined;
-	const resolvedPlayers = rawRoster
-		? await resolveRosterIdentities(env.SHARE_DB, rawRoster)
-		: [];
+	const resolvedPlayers =
+		rawRoster && !row.is_tournament_linked
+			? await resolveRosterIdentities(env.SHARE_DB, rawRoster)
+			: [];
 	const transformed = {
 		...baseBlob,
 		user_id: row.user_id,
@@ -2670,7 +2681,7 @@ export async function handleGameDetail(
 		user_display_name: row.user_display_name,
 		user_slug: row.user_slug,
 		display_name: row.display_name,
-		// PROTOTYPE: resolved_players -- see resolveRosterIdentities above.
+		// See resolveRosterIdentities above.
 		resolved_players: resolvedPlayers,
 	};
 	const bodyText = JSON.stringify(transformed);

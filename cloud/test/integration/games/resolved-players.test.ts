@@ -1,15 +1,15 @@
-// PROTOTYPE (2026-08-19) -- demonstrates the fix proposed in per-ankh's
+// Exercises resolveRosterIdentities/resolved_players in cloud/src/games.ts's
+// handleGameDetail -- the fix for the gap documented in per-ankh's
 // scripts/docs/elo-calculator-design.md § "User-Submitted Games as a Data
-// Source -- Blocked". Exercises resolveRosterIdentities/resolved_players in
-// cloud/src/games.ts's handleGameDetail. Not part of the regular suite until
-// that patch is reviewed and actually adopted.
+// Source -- Blocked".
 
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { expectOk } from "../../helpers/assertions";
-import { makeUser, type TestUser } from "../../helpers/builders";
+import { makeTournament, makeUser, type TestUser } from "../../helpers/builders";
 import { putBlob, seedGame } from "../../helpers/games";
-import { request } from "../../helpers/requests";
+import { postMultipart, request } from "../../helpers/requests";
+import { buildUploadFormData } from "../../helpers/save-blob";
 
 beforeAll(async () => {
 	await applyD1Migrations(env.SHARE_DB, env.TEST_MIGRATIONS);
@@ -39,7 +39,7 @@ async function linkOnlineId(user: TestUser, onlineId: string): Promise<void> {
 		.run();
 }
 
-describe("resolved_players on GET /v1/games/:id (prototype)", () => {
+describe("resolved_players on GET /v1/games/:id", () => {
 	it("resolves both seats when both online_ids are linked", async () => {
 		const owner = await makeUser({ displayName: "Owner Player" });
 		const opponent = await makeUser({ displayName: "Opponent Player" });
@@ -158,5 +158,38 @@ describe("resolved_players on GET /v1/games/:id (prototype)", () => {
 
 		expect(body.resolved_players).toHaveLength(1);
 		expect(body.resolved_players[0].player_index).toBe(0);
+	});
+
+	it("is empty for a tournament-linked game, even when both online_ids resolve -- the frontend already has identity via the tournament-link endpoint", async () => {
+		const playerA = await makeUser({ discordUsername: "alice-resolved" });
+		const opponent = await makeUser();
+		// The upload fixture's deterministic online_id for a two-human roster --
+		// see buildUploadFormData's playerRoster construction (save-blob.ts).
+		await linkOnlineId(playerA, "steam:000000000000001");
+		await linkOnlineId(opponent, "steam:000000000000002");
+
+		const t = await makeTournament({
+			slotOwners: { A: [playerA] },
+			advanceTo: "swiss-round-1-generated",
+		});
+		const aSlot = t.slotsByDivision.A[0];
+		const aMatch = (await t.matches()).find(
+			(m) => m.slot_a_id === aSlot.slotId || m.slot_b_id === aSlot.slotId,
+		)!;
+
+		const form = await buildUploadFormData({ winnerIndex: 0 });
+		form.set("tournament_match_id", aMatch.match_id);
+		const uploadRes = await postMultipart({
+			path: "/v1/games",
+			form,
+			as: playerA,
+		});
+		const { game_id } = await expectOk<{ game_id: string }>(uploadRes);
+
+		const body = await expectOk<DetailBody>(
+			await request.get({ path: `/v1/games/${game_id}`, as: playerA }),
+		);
+
+		expect(body.resolved_players).toHaveLength(0);
 	});
 });
