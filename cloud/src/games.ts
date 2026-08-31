@@ -2118,12 +2118,11 @@ export async function handleGameList(
 	// header — see the matching COALESCE in handleGameDetail.
 	const orderBy = resolveGameListOrder(url.searchParams.get("sort"));
 	const rows = await env.SHARE_DB.prepare(
-		// PROTOTYPE (2026-08-20): xml_game_id added -- see design doc's "Match
-		// Deduplication via xml_game_id" section. Not PII; already stored on
-		// every row, just never returned before. Lets a consumer detect two
-		// uploads of the same underlying game by equality, no server-side
-		// resolution needed (unlike the online_id/opponent-identity prototype
-		// on explore/opponent-id-from-save).
+		// xml_game_id: see design doc's "Match Deduplication via xml_game_id"
+		// section. Not PII; already stored on every row, just never returned
+		// before. Lets a consumer detect two uploads of the same underlying
+		// game by equality, no server-side resolution needed (unlike the
+		// online_id/opponent-identity work on explore/opponent-id-from-save).
 		`SELECT game_id, game_name, display_name, save_date, total_turns,
 		        COALESCE(user_nation, (
 		            SELECT ps.nation FROM player_summaries ps
@@ -2454,9 +2453,9 @@ export async function handleGameDetail(
 	// uploader didn't pick one. The header also drops its client-side
 	// players-array fallback now that this query supplies a usable value.
 	const row = await env.SHARE_DB.prepare(
-		// PROTOTYPE (2026-08-20): g.xml_game_id added -- see design doc's
-		// "Match Deduplication via xml_game_id" section. Not PII; lets a
-		// consumer detect two uploads of the same underlying game.
+		// g.xml_game_id: see design doc's "Match Deduplication via
+		// xml_game_id" section. Not PII; lets a consumer detect two uploads
+		// of the same underlying game.
 		`SELECT g.user_id, g.is_public, g.display_name, g.user_won,
 		        g.parser_version, g.xml_game_id,
 		        g.user_nation AS uploader_nation,
@@ -2478,7 +2477,7 @@ export async function handleGameDetail(
 			display_name: string | null;
 			// Part of the blob cache key — see cacheKey in blob-cache.ts.
 			parser_version: string;
-			// PROTOTYPE: see the SELECT comment above.
+			// See the SELECT comment above.
 			xml_game_id: string;
 			user_nation: string | null;
 			// Raw uploader choice (un-COALESCE'd) for the reparse round-trip;
@@ -2589,7 +2588,7 @@ export async function handleGameDetail(
 		user_display_name: row.user_display_name,
 		user_slug: row.user_slug,
 		display_name: row.display_name,
-		// PROTOTYPE (2026-08-20): not PII -- see the SELECT comment above.
+		// Not PII -- see the SELECT comment above.
 		xml_game_id: row.xml_game_id,
 	};
 	const bodyText = JSON.stringify(transformed);
@@ -3049,7 +3048,7 @@ export async function handleGamesOutOfDate(
 	const rows = await env.SHARE_DB.prepare(
 		`SELECT game_id, game_name, display_name, save_date, total_turns,
 		        user_nation, user_won, winner_nation, victory_type, map_size,
-		        is_public, collection_id, created_at, parser_version
+		        is_public, collection_id, created_at, parser_version, xml_game_id
 		 FROM games
 		 WHERE user_id = ? AND parser_version != ?
 		 ORDER BY created_at DESC`,
@@ -3070,6 +3069,7 @@ export async function handleGamesOutOfDate(
 			collection_id: number | null;
 			created_at: string;
 			parser_version: string;
+			xml_game_id: string;
 		}>();
 	const games = (rows.results ?? []).map((r) => ({
 		game_id: r.game_id,
@@ -3089,6 +3089,7 @@ export async function handleGamesOutOfDate(
 		collection_id: r.collection_id,
 		created_at: r.created_at,
 		parser_version: r.parser_version,
+		xml_game_id: r.xml_game_id,
 	}));
 	return jsonResponse({ games, total: games.length }, 200, cors);
 }
@@ -3129,7 +3130,7 @@ export async function handleAdminListOutOfDate(
 		`SELECT g.game_id, g.user_id, g.game_name, g.display_name, g.save_date,
 		        g.total_turns, g.user_nation, g.user_won, g.winner_nation,
 		        g.victory_type, g.map_size, g.is_public, g.collection_id,
-		        g.created_at, g.parser_version,
+		        g.created_at, g.parser_version, g.xml_game_id,
 		        ${displayNameSql("u")} AS owner_display_name
 		 FROM games g
 		 JOIN users u ON g.user_id = u.user_id
@@ -3153,6 +3154,7 @@ export async function handleAdminListOutOfDate(
 			collection_id: number | null;
 			created_at: string;
 			parser_version: string;
+			xml_game_id: string;
 			owner_display_name: string;
 		}>();
 	const games = (rows.results ?? []).map((r) => ({
@@ -3175,6 +3177,7 @@ export async function handleAdminListOutOfDate(
 		collection_id: r.collection_id,
 		created_at: r.created_at,
 		parser_version: r.parser_version,
+		xml_game_id: r.xml_game_id,
 	}));
 	return jsonResponse({ games }, 200, cors);
 }

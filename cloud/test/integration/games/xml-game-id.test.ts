@@ -1,19 +1,37 @@
-// PROTOTYPE (2026-08-20) -- demonstrates the fix proposed in per-ankh's
-// scripts/docs/elo-calculator-design.md § "Match Deduplication via
-// xml_game_id -- Verified Feasible". Exercises xml_game_id exposure on
-// GET /v1/games and GET /v1/games/:id (cloud/src/games.ts). Not part of the
-// regular suite until that patch is reviewed and actually adopted.
+// Exercises xml_game_id exposure across every game-list/detail surface
+// (cloud/src/games.ts): GET /v1/games, GET /v1/games/:id,
+// GET /v1/games/out-of-date, and GET /v1/admin/games/out-of-date. See
+// docs/elo-calculator-design.md § "Match Deduplication via xml_game_id --
+// Verified Feasible" for why the field exists and how it's used.
 
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
+import { nanoid } from "nanoid";
 import { expectOk } from "../../helpers/assertions";
-import { makeUser } from "../../helpers/builders";
+import { makeSiteAdmin, makeUser, type TestUser } from "../../helpers/builders";
 import { seedGame } from "../../helpers/games";
 import { request } from "../../helpers/requests";
 
 beforeAll(async () => {
 	await applyD1Migrations(env.SHARE_DB, env.TEST_MIGRATIONS);
 });
+
+async function seedStaleGame(
+	user: TestUser,
+	parserVersion: string,
+	xmlGameId: string,
+): Promise<string> {
+	const gameId = nanoid(21);
+	await env.SHARE_DB.prepare(
+		`INSERT INTO games (
+			game_id, user_id, xml_game_id, total_turns, file_hash,
+			is_public, blob_version, blob_size_bytes, parser_version
+		) VALUES (?, ?, ?, 50, ?, 0, 2, 1024, ?)`,
+	)
+		.bind(gameId, user.userId, xmlGameId, nanoid(64), parserVersion)
+		.run();
+	return gameId;
+}
 
 async function setXmlGameId(gameId: string, xmlGameId: string): Promise<void> {
 	await env.SHARE_DB.prepare(
@@ -31,7 +49,7 @@ interface ListBody {
 	games: { game_id: string; xml_game_id: string }[];
 }
 
-describe("xml_game_id on GET /v1/games and GET /v1/games/:id (prototype)", () => {
+describe("xml_game_id on GET /v1/games and GET /v1/games/:id", () => {
 	it("is present on the game-detail response", async () => {
 		const owner = await makeUser();
 		const gameId = await seedGame(owner, { isPublic: true });
@@ -97,5 +115,48 @@ describe("xml_game_id on GET /v1/games and GET /v1/games/:id (prototype)", () =>
 		);
 
 		expect(detail1.xml_game_id).not.toBe(detail2.xml_game_id);
+	});
+});
+
+describe("xml_game_id on GET /v1/games/out-of-date", () => {
+	it("is present on each row", async () => {
+		const user = await makeUser();
+		const gameId = await seedStaleGame(
+			user,
+			"2.5.0",
+			"71e0b0b6-4f8a-4b1a-9c3e-1a2b3c4d5e6f",
+		);
+
+		const body = await expectOk<ListBody>(
+			await request.get({
+				path: "/v1/games/out-of-date?version=3.0.0",
+				as: user,
+			}),
+		);
+
+		const row = body.games.find((g) => g.game_id === gameId);
+		expect(row?.xml_game_id).toBe("71e0b0b6-4f8a-4b1a-9c3e-1a2b3c4d5e6f");
+	});
+});
+
+describe("xml_game_id on GET /v1/admin/games/out-of-date", () => {
+	it("is present on each row", async () => {
+		const admin = await makeSiteAdmin();
+		const owner = await makeUser();
+		const gameId = await seedStaleGame(
+			owner,
+			"2.5.0",
+			"9c8b7a6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+		);
+
+		const body = await expectOk<ListBody>(
+			await request.get({
+				path: "/v1/admin/games/out-of-date?version=3.0.0",
+				as: admin,
+			}),
+		);
+
+		const row = body.games.find((g) => g.game_id === gameId);
+		expect(row?.xml_game_id).toBe("9c8b7a6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d");
 	});
 });

@@ -115,7 +115,7 @@ All paths use **credentialed, echo-Origin** CORS (the request `Origin` is reflec
 
 ### PII
 
-`online_id` (Steam/GOG/Epic) is stripped from game blobs for non-owner viewers via a deep walk (`stripOnlineIds`). The raw save ZIP retains it, which is why `GET /v1/games/:id/download` requires a session while the JSON `GET /v1/games/:id` serves public games anonymously. `discord_id` / `discord_username` appear only in admin-tier tournament responses, never in public payloads. A user's `slug` is public by design. It is derived from the effective display name (see [Profile slugs](#profile-slugs)) — never from `discord_username` or any other identity field the user hasn't already published — so the URL restates a name every public payload already renders. Since it is issued rather than chosen, `/u/<slug>` is an account-existence oracle keyed on display names; that is accepted, and users who don't want the URL can release it via [`DELETE /v1/users/me/slug`](#delete-v1usersmeslug). PII is never logged.
+`online_id` (Steam/GOG/Epic) is stripped from game blobs for non-owner viewers via a deep walk (`stripOnlineIds`). The raw save ZIP retains it, which is why `GET /v1/games/:id/download` requires a session while the JSON `GET /v1/games/:id` serves public games anonymously. `discord_id` / `discord_username` appear only in admin-tier tournament responses, never in public payloads. `xml_game_id` — the save's `GameId` UUID, stable across every turn/re-upload of the same multiplayer session — is **not** PII and is returned unfiltered to every viewer (`GET /v1/games`, `GET /v1/games/:id`, and both `out-of-date` list endpoints); it identifies a game session, not a person, and exists so a consumer can detect two uploads of the same underlying game by equality. A user's `slug` is public by design. It is derived from the effective display name (see [Profile slugs](#profile-slugs)) — never from `discord_username` or any other identity field the user hasn't already published — so the URL restates a name every public payload already renders. Since it is issued rather than chosen, `/u/<slug>` is an account-existence oracle keyed on display names; that is accepted, and users who don't want the URL can release it via [`DELETE /v1/users/me/slug`](#delete-v1usersmeslug). PII is never logged.
 
 ---
 
@@ -244,7 +244,7 @@ Fetch the parsed game blob (JSON).
 
 - **Auth:** Public (owner extras). Owner always allowed; non-owner only if `is_public=1`; anonymous on a private game → `401`, signed-in non-owner on a private game → `403`.
 - **Path:** `id` (21-char).
-- **Response 200:** the stored `FullGameData` JSON with injected top-level fields (`user_id`, `user_nation`, `uploader_nation`, `user_won`, `user_display_name`, `user_slug`, `display_name`); owner additionally gets `is_public`.
+- **Response 200:** the stored `FullGameData` JSON with injected top-level fields (`user_id`, `user_nation`, `uploader_nation`, `user_won`, `user_display_name`, `user_slug`, `display_name`, `xml_game_id`); owner additionally gets `is_public`.
 - **Errors:** `404` (`NOT_FOUND`, `BLOB_MISSING`), `401 UNAUTHORIZED`, `403 FORBIDDEN`, `429 RATE_LIMIT`.
 - **Notes:** Non-owner viewers get `online_id` stripped from the blob. Anonymous reads consume the `anon_read` bucket (200/hr per IP). Owner responses are `private, no-store`; public responses `public, max-age=3600, s-maxage=60` with `Vary: Cookie, Origin`.
 
