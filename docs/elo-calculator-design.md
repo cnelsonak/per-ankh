@@ -202,6 +202,20 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ---
 
+## Active Players (2026-10-10)
+
+**Decision:** the leaderboard and `export json`/`export csv` rank only currently active players: real accounts with at least one match on or after a cutoff date (`ACTIVE_SINCE`, default `2026-03-18`, the day after the 2025 tournament's last match; overridable with `--active-since YYYY-MM-DD`).
+
+**Rationale:**
+- Players whose only results are from the 2025 season would otherwise sit on the leaderboard indefinitely with a frozen rating, crowding out the current field.
+- Same treatment as [synthetic players](#synthetic-players-2026-08-18): their matches still fully participate in rating calculation, since dropping them would understate active players' results and break chronological replay. Only the ranked view filters them out, and `player`/`match`/`h2h` still resolve them.
+- A fixed cutoff date, not "played in the live tournament," so the rule holds however matches are sourced (live fetch, `--source` snapshots, or `--no-live` replay).
+- Exports share the filter with the leaderboard (one `ranked_players()`), so a rank means the same thing everywhere.
+
+**Implementation note:** `is_active()` compares each match's `date` string against the cutoff. That works because every source uses ISO-8601 dates (day-only or full timestamp), and it's why `--active-since` rejects anything that isn't `YYYY-MM-DD`.
+
+---
+
 ## Output Format
 
 **Decision:** Multiple command modes (CLI-selectable)
@@ -267,6 +281,7 @@ This directly affects two items in `elo-calculator-usage.md`'s Planned list — 
 
 ## Historical Record
 
+- **2026-10-10:** Leaderboard and `export json`/`export csv` now rank only active players (a match on or after `--active-since`, default `2026-03-18`, the day after the 2025 tournament ended). Inactive players' results still feed ratings. See [Active Players](#active-players-2026-10-10).
 - **2026-08-25:** Added `h2h <player_a> <player_b>` — direct match history/record between two players plus the ELO-implied win probability between them. Scoped deliberately to raw record + probability only, deferring per-meeting upset detection as a possible follow-up rather than building it unrequested (discussion with contributor). See [Head-to-Head](#head-to-head-2026-08-25) above.
 - **2026-08-20:** Confirmed the actual target scenario directly: the contributor's own save and their opponent's independently-uploaded save of the same game carry an identical `GameId`. Everything checked previously used saves from a single uploader (same-person, different turns/games); this is the first cross-participant confirmation — two different people, two different files, matching identifier. Also confirmed `xml_game_id` can never coincide with Per-Ankh's own `game_id` (different generator, length, and format), by code inspection and an empirical test request.
 - **2026-08-20:** Confirmed `GameId` stability across turns of the same game, using two more save files the contributor provided (Turn 90 and Turn 98 of the same match: identical `GameId`; a third, unrelated match sharing one player: different `GameId`). Upgrades the "Match Deduplication via `xml_game_id`" section from partially-inferred to fully verified. As a real-world side effect, also resolved a save the contributor was themselves unsure about — confirmed to be a different game than they thought, by `GameId` mismatch.

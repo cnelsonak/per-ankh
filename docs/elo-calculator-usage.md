@@ -104,10 +104,13 @@ Calculate and analyze ELO ratings for tournament players.
 
 #### 1. Leaderboard
 
-View all players ranked by final rating:
+View currently active players ranked by final rating:
 
 ```bash
 python3 scripts/elo-calculator.py leaderboard
+
+# Change the activity cutoff (YYYY-MM-DD); an early date ranks everyone
+python3 scripts/elo-calculator.py --active-since 2025-01-01 leaderboard
 ```
 
 **Output:**
@@ -129,6 +132,8 @@ Shows:
 - Current ELO rating
 - Win-loss record
 - Total matches played
+
+Only **active** players are ranked: those with at least one match on or after `--active-since` (default `2026-03-18`, the day after the 2025 tournament's last match). A player whose results are all from the 2025 tournament still moves their opponents' ratings, exactly as a [synthetic player](#synthetic-players) does, but isn't listed. `player`, `match`, and `h2h` still resolve inactive players. The same filter applies to `export json`/`export csv`, so ranks in the files match the leaderboard.
 
 #### 2. Single Match
 
@@ -259,7 +264,7 @@ Rank,User ID,Slug,Display Name,Rating,Matches,Wins,Losses
 ...
 ```
 
-`export json`/`export csv`/`leaderboard` only ever list real Per-Ankh accounts — see [Synthetic players](#synthetic-players) below for why some match participants never show up here even though their results counted.
+`export json`/`export csv`/`leaderboard` only ever list real, currently active Per-Ankh accounts (see [Leaderboard](#1-leaderboard) for the `--active-since` cutoff, and [Synthetic players](#synthetic-players) below for why some match participants never show up here even though their results counted).
 
 #### 7. Export a Snapshot (for offline replay)
 
@@ -489,6 +494,7 @@ Includes:
 - ~~**Automated test coverage**~~ — all three scripts (`elo-calculator.py`, `fetch-tournament-matches.py`, `per_ankh_api.py`), stdlib `unittest`; see [Testing](#testing).
 - ~~**Shared data-fetch module**~~ — `scripts/per_ankh_api.py` holds `API_BASE`, `fetch_json()`, `fetch_tournament()`, `fetch_tournament_matches()`; both scripts import from it instead of each defining their own.
 - ~~**Same-date match ordering**~~ — matches sharing an exact `date` are now computed as a batch against pre-batch ratings, not sequentially in file order (was previously order-dependent, and therefore not reproducible, whenever a player had two same-date matches); see [Chronological replay](#chronological-replay).
+- ~~**Active-player leaderboard**~~ — leaderboard and `export json`/`export csv` rank only players with a match on or after `--active-since` (default: the day after the 2025 tournament ended); inactive players' results still count toward ratings. See [Leaderboard](#1-leaderboard) (2026-10-10).
 - ~~**Head-to-head records**~~ — `h2h <player_a> <player_b>` shows the direct match history and W-L record between two players, plus the current ELO-implied win probability between them; see [Head-to-Head](#4-head-to-head) (2026-08-25).
 
 ### Possible

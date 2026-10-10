@@ -151,7 +151,7 @@ class TestCalculateRatings(unittest.TestCase):
     def test_synthetic_player_participates_but_not_ranked(self):
         calc = elo.ELOCalculator()
         calc.canonical_matches = [
-            make_match("m1", "2025-01-01", make_ref("alcaras"), make_ref("ghost", source="synthetic"), "a"),
+            make_match("m1", "2026-05-01", make_ref("alcaras"), make_ref("ghost", source="synthetic"), "a"),
         ]
         calc.calculate_ratings()
         # Synthetic player's match still produced a real delta for the real player.
@@ -161,6 +161,27 @@ class TestCalculateRatings(unittest.TestCase):
         ranked_ids = [p.user_id for p in calc.ranked_players()]
         self.assertIn("uid_alcaras", ranked_ids)
         self.assertNotIn("uid_ghost", ranked_ids)
+
+    def test_inactive_player_participates_but_not_ranked(self):
+        """A player whose only matches predate active_since still moves their
+        opponents' ratings, but isn't ranked; one later match makes them active."""
+        calc = elo.ELOCalculator(active_since="2026-03-18")
+        calc.canonical_matches = [
+            make_match("m1", "2026-03-17", make_ref("alcaras"), make_ref("retired"), "a"),
+            make_match("m2", "2026-03-18 12:00:00", make_ref("alcaras"), make_ref("zophister"), "a"),
+            make_match("m3", "2026-02-01", make_ref("boldus"), make_ref("zophister"), "a"),
+        ]
+        calc.calculate_ratings()
+        self.assertGreater(calc.ratings["uid_alcaras"].rating, 1500 + 32)  # beat "retired" first
+        ranked_ids = [p.user_id for p in calc.ranked_players()]
+        self.assertCountEqual(ranked_ids, ["uid_alcaras", "uid_zophister"])
+
+    def test_active_since_flag_rejects_non_iso_date(self):
+        parser = elo.build_arg_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--active-since", "03/18/2026", "leaderboard"])
+        args = parser.parse_args(["--active-since", "2026-01-01", "leaderboard"])
+        self.assertEqual(args.active_since, "2026-01-01")
 
 
 class TestCanonicalFromLive(unittest.TestCase):

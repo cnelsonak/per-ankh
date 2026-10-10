@@ -3,11 +3,11 @@
 ELO rating calculator for Per-Ankh tournaments.
 
 Usage:
-    python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] leaderboard
+    python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] [--active-since <date>] leaderboard
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] match <match_id>
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] player <player_slug|user_id>
     python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] h2h <player_a> <player_b>
-    python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] export <json|csv|snapshot>
+    python3 elo-calculator.py [--tournament <slug>] [--source <file> ...] [--no-live] [--active-since <date>] export <json|csv|snapshot>
 
 By default, fetches the live Per-Ankh tournament (--tournament, default
 2026-community-tournament) and replays it chronologically to compute ELO.
@@ -25,6 +25,11 @@ for pure offline replay over snapshot files.
 `export snapshot` writes the live-fetched tournament's raw matches to that
 same portable schema, so a future run can replay it via --source without
 re-querying the API.
+
+The leaderboard and `export json`/`export csv` only rank currently active
+players -- those with a match on or after --active-since (default: the day
+after the 2025 tournament ended). Inactive players' results still feed
+everyone's ratings, and `player`/`match`/`h2h` still resolve them.
 """
 
 import argparse
@@ -35,7 +40,7 @@ import re
 import sys
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
 from per_ankh_api import fetch_tournament, fetch_tournament_matches
@@ -46,6 +51,12 @@ USER_AGENT = "Per-Ankh-ELO-Calculator/1.0"
 BASELINE_ELO = 1500
 K_FACTOR = 64  # Fixed; future iterations may vary by match type
 TOURNAMENT_SLUG = "2026-community-tournament"
+# Leaderboard/export eligibility cutoff: a player must have at least one match
+# on or after this date to count as currently active. The day after the 2025
+# tournament's last match (scripts/data/prospector-2025-tournament-matches.json
+# ends 2026-03-17), so players whose only results are from that season still
+# feed everyone's ratings but aren't ranked themselves.
+ACTIVE_SINCE = "2026-03-18"
 
 
 # A handful of "fancy text generator" substitutions with no Latin-letter name
@@ -142,8 +153,9 @@ class PlayerRating:
 class ELOCalculator:
     """Calculate and manage ELO ratings across one or more match sources."""
 
-    def __init__(self, tournament_slug: str = TOURNAMENT_SLUG):
+    def __init__(self, tournament_slug: str = TOURNAMENT_SLUG, active_since: str = ACTIVE_SINCE):
         self.tournament_slug = tournament_slug
+        self.active_since = active_since
         self.tournament_data = {}
         self.canonical_matches: List[CanonicalMatch] = []
         self.ratings: Dict[str, PlayerRating] = {}
@@ -354,17 +366,28 @@ class ELOCalculator:
             for user_id, total in delta_total.items():
                 self.ratings[user_id].rating = starting_rating[user_id] + total
 
+    def is_active(self, player: PlayerRating) -> bool:
+        """Whether the player has a match on or after the active_since cutoff.
+        Dates are ISO-8601 strings (day-only or full timestamp), so a plain
+        string comparison orders them correctly."""
+        return any(h["date"] >= self.active_since for h in player.match_history)
+
     def ranked_players(self) -> List[PlayerRating]:
         """Players eligible for leaderboard/export -- excludes synthetic identities
         (historical opponents with no Per-Ankh account, who haven't signed up for
-        the current rating system but whose results still fed real players' ratings)."""
-        return sorted(p for p in self.ratings.values() if p.source != "synthetic")
+        the current rating system but whose results still fed real players' ratings)
+        and inactive players (no match since active_since), whose results likewise
+        still count toward everyone else's ratings."""
+        return sorted(p for p in self.ratings.values() if p.source != "synthetic" and self.is_active(p))
 
     def print_leaderboard(self, limit: Optional[int] = None) -> None:
         """Print leaderboard sorted by rating."""
         ranked = self.ranked_players()
         if not ranked:
-            print("No ratings calculated.")
+            if self.ratings:
+                print(f"No active players (none with a match since {self.active_since}; see --active-since).")
+            else:
+                print("No ratings calculated.")
             return
 
         if limit:
@@ -642,6 +665,15 @@ class ELOCalculator:
         print(f"Exported {len(matches)} matches to {filename}")
 
 
+def iso_date(value: str) -> str:
+    """argparse type for --active-since: must be YYYY-MM-DD, since is_active()
+    compares dates as strings and any other format would silently misorder."""
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid date {value!r}, expected YYYY-MM-DD")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="ELO rating calculator for Per-Ankh tournaments.",
@@ -655,6 +687,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                               "tournament (repeatable)")
     parser.add_argument("--no-live", action="store_true",
                          help="Skip fetching the live tournament; only replay --source files")
+    parser.add_argument("--active-since", type=iso_date, default=ACTIVE_SINCE, metavar="DATE",
+                         help="Only rank players with a match on or after this date, YYYY-MM-DD "
+                              "(leaderboard and json/csv export; default: %(default)s)")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -683,7 +718,7 @@ def main():
     if args.no_live and not args.source:
         parser.error("--no-live requires at least one --source file")
 
-    calc = ELOCalculator(args.tournament)
+    calc = ELOCalculator(args.tournament, args.active_since)
 
     if not args.no_live:
         if not calc.load_tournament():
